@@ -1,5 +1,10 @@
 # StreamReactive
 
+> **Authoring note:** This file is **AI-generated / AI-edited** — produced with the
+> assistance of an AI coding assistant under the author's direction, not handwritten.
+> It records architecture and hard-won runtime lessons; treat it as a working
+> document and verify against the code where accuracy matters.
+
 A Beat Saber mod that reacts to stream events (Twitch bits, subs, raids, and a custom "bomb" event) during gameplay with configurable particle effects, cosmetic note replacements, and floating text.
 
 ## Architecture
@@ -25,8 +30,8 @@ StreamReactive/
   Resources/generator.html     — Message generator for test payloads
   REFERENCE_NOTES.md           — This file
   StreamReactive.csproj        — Project targeting net472
-  StreamReactive.csproj.user   — Beat Saber install path
-  ext/_latest.log              — Latest runtime log
+  StreamReactive.csproj.user   — Beat Saber install path (local-only, NOT committed)
+  ext/_latest.log              — Latest runtime log (local-only, NOT committed)
 ```
 
 ## Event Format
@@ -43,6 +48,8 @@ Send JSON to `ws://localhost:41243/stream`:
 }
 ```
 
+The type field may also be named `event` (e.g. `{"event": "bomb", ...}`) — both are accepted.
+
 Event types:
 
 - `bomb` — custom explosion effect (uses `message` for the floating text)
@@ -52,13 +59,16 @@ Event types:
 - `raid` / `host` — raid sustain effect (shows viewer count)
 - `stop_all` — control: stops all active particle/event processing immediately (also clears thrown cubes)
 - `socket` — control: turns the whole plugin on/off, identical to the General "Enabled" switch. `data.on` / `data.enabled` / `data.value` (or root `on`) = boolean; if absent it toggles from the current state.
-- `pause` / `unpause` (alias `resume`) — control: pause keeps the mod *enabled* and accepting events, but nothing plays until unpause. Note event types are held in the `NoteCosmeticController.ProcessPendingStreamEvents` queue and start on unpause; transient one-shots (flashbang/projection/throw) have no queue and are dropped while paused. Mirrors the General "Paused" switch (config `Paused`).
+- `pause` / `unpause` (alias `resume`) — control: pause keeps the mod *enabled* and accepting events, but nothing plays until unpause. Note event types (bomb/bits/sub/raid) are held in the `NoteCosmeticController.ProcessPendingStreamEvents` queue and start on unpause; **flashbang is held and replayed on unpause** (`TryDrainHeldFlashbangs`); projection/throw/lurk have no queue and are ignored while paused. Mirrors the General "Paused" switch (config `Paused`).
 - `skip` / `skip_current` — control: skips the current event's sustain window
- - `throw` / `throw_cube` / `cube` — control: throws projectiles at the guard capsule; they bounce off it. Works in the menu too (not gated by gameplay). `amount` = count (1–10, max 12 concurrent)
+ - `throw` / `throw_cube` / `cube` — control: throws projectiles at the guard capsule; they bounce off it. Works in the menu too (not gated by gameplay). `amount` = count (1–10, max 12 concurrent). Optional per-throw overrides in `data`: `scale`/`size` (multiplier), `spawn`/`origin` (spawn-point mode), `arc`/`time`/`airTime` (flight time in seconds).
+ - `flashbang` / `flash_bang` / `flash` — one-shot: full-screen white flash. While paused or on a protected map it is **held and replayed** at the start of the next playable map instead of dropped (the viewer's bits/gift isn't wasted).
+ - `projection` / `project` / `proj` — one-shot: shows a floating projection shape. `data.name` = `star`, `nuke`, `pulse`, `spiral`, or an OBJ filename (default `star`); optional `data.color` (hex), `duration`, `size`, `distance`, and position/rotation fields (`positionX`/`posX`/`x`, …).
+ - `cubeanimation` / `cube_animation` / `cube_anim` / `lurk` — one-shot: the "Lurk" cube animation with floating viewer text. `data.user` (default "Anonymous"), `data.action`/`data.animation` = animation name (only `lurk` implemented), `data.scale`/`size` optional.
 
 Any unrecognized `type` (e.g. `channelpoint`, `donation`) falls back to the generic "other" effect, which reuses the default bit-tier particle config.
 
-Event flow: `bomb`, `bits`, `sub`/`raid` are ALL queued in `NoteCosmeticController._eventQueue` and processed in order by `ProcessPendingStreamEvents`. A running Bits/Sub/Raid blocks everything, including queued bombs (`if (anyNonBomb) return;`). While a Bomb is active, other queued bombs may join it (and skip past queued non-bomb events); otherwise events start strictly in arrival order. Nothing starts while out-of-game (`if (!Plugin.IsInGame) return;` — queued events wait for the next map, sustain windows pause across scene changes) or while `Config.Paused` is true. Only flashbang/projection/throw dispatch immediately and bypass (and are dropped while paused). `bomb` also differs in that its visuals attach to note cuts and its sound fires on cut.
+Event flow: `bomb`, `bits`, `sub`/`raid` are ALL queued in `NoteCosmeticController._eventQueue` and processed in order by `ProcessPendingStreamEvents`. A running Bits/Sub/Raid blocks everything, including queued bombs (`if (anyNonBomb) return;`). While a Bomb is active, other queued bombs may join it (and skip past queued non-bomb events); otherwise events start strictly in arrival order. Nothing starts while out-of-game (`if (!Plugin.IsInGame) return;` — queued events wait for the next map, sustain windows pause across scene changes) or while `Config.Paused` is true. Only flashbang/projection/throw/lurk dispatch immediately and bypass the queue (projection/throw/lurk are ignored while paused; flashbang is held and replayed on unpause). `bomb` also differs in that its visuals attach to note cuts and its sound fires on cut.
 
 Field notes:
 
