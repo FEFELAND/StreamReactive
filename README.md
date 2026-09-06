@@ -1,5 +1,5 @@
 # StreamReactive
-A Beat Saber mod that _Reacts_ to _Stream_ events. Simple, right?
+A Beat Saber mod that _Reacts_ to _Stream_ events. Simple, right? | [Changelog](CHANGELOG.md)
 
 This mod opens a websocket from your game, which you can then connect to with any bot of your choosing (NoBot, Streamer.Bot, Firebot, etc) and send events to your game based on your own rules.
 You set the triggers, you set the cooldowns, or make everything trigger at once for every chat message, I won't stop you.
