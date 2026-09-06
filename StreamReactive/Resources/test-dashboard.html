@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StreamReactive Test Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
+  h1 { font-size: 1.6rem; margin-bottom: 6px; }
+  .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9rem; }
+  .status { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; margin-bottom: 20px; }
+  .connected { background: #1b5e20; color: #81c784; }
+  .disconnected { background: #b71c1c; color: #ef9a9a; }
+  .card { background: #16213e; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: #7ec8e3; }
+  nav { margin-bottom: 20px; }
+  nav a { display: inline-block; padding: 8px 16px; border-radius: 8px 8px 0 0; color: #aaa; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+  nav a:hover { color: #eee; }
+  nav a.active { background: #16213e; color: #7ec8e3; }
+  .btn-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; color: #fff; transition: filter .15s; }
+  .btn:hover { filter: brightness(1.2); }
+  .btn:active { filter: brightness(0.85); }
+  .btn-bits { background: #ffd700; color: #000; }
+  .btn-sub { background: #ff69b4; }
+  .btn-gift { background: #c084fc; }
+  .btn-raid { background: #ff4500; }
+  .btn-skip { background: #ffb300; color: #000; }
+  .btn-custom { background: #78909c; }
+  .btn-throw { background: #26a69a; }
+  .btn-on { background: #2e7d32; }
+  .btn-off { background: #b71c1c; }
+  .btn-resume { background: #2e7d32; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 3px; }
+  .field input, .field select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #333; background: #0f3460; color: #eee; font-size: 0.9rem; }
+  .field select { appearance: auto; }
+  .field input:focus { outline: none; border-color: #7ec8e3; }
+  .field-row { display: flex; gap: 10px; }
+  .field-row .field { flex: 1; }
+  .log { background: #0d1b2a; border-radius: 8px; padding: 12px; max-height: 180px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.8rem; }
+  .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a2e; }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time { color: #666; }
+  .log-ok { color: #81c784; }
+  .log-err { color: #ef9a9a; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Test Dashboard</a>
+  <a href="/generator">Message Generator</a>
+</nav>
+<h1>StreamReactive Test Dashboard</h1>
+<p class="subtitle">Send test stream events to the mod while in-game</p>
+<div id="statusBadge" class="status disconnected">Disconnected</div>
+
+<div class="card">
+  <h2>Controls</h2>
+  <div class="btn-grid">
+    <button class="btn btn-on" onclick="sendSocket(true)">Enable</button>
+    <button class="btn btn-off" onclick="sendSocket(false)">Disable</button>
+    <button class="btn" style="background: #ff8f00; color: #000;" onclick="sendPause()">Pause</button>
+    <button class="btn btn-resume" onclick="sendUnpause()">Unpause</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Quick Events</h2>
+  <div class="btn-grid">
+    <button class="btn btn-bits" onclick="sendEvent('bits', 'TwitchUser', 50)">Bits 50</button>
+    <button class="btn btn-bits" onclick="sendEvent('bits', 'TwitchUser', 100)">Bits 100</button>
+    <button class="btn btn-bits" onclick="sendEvent('bits', 'TwitchUser', 1000)">Bits 1000</button>
+    <button class="btn btn-bits" onclick="sendEvent('bits', 'TwitchUser', 5000)">Bits 5000</button>
+    <button class="btn btn-bits" onclick="sendEvent('bits', 'TwitchUser', 10000)">Bits 10000</button>
+    <button class="btn btn-sub" onclick="sendEvent('subscription', 'NewSub', 1)">Sub</button>
+    <button class="btn btn-gift" onclick="sendEvent('subscription_gift', 'Gifter', 5)">Gift 5</button>
+    <button class="btn btn-raid" onclick="sendEvent('raid', 'Raider', 50)">Raid 50</button>
+    <button class="btn" style="background: #ff6600;" onclick="sendEvent('bomb', 'You', 1)">Test Bomb</button>
+    <button class="btn btn-throw" onclick="sendEvent('throw', 'Cube', 1)">Throw Cube</button>
+    <button class="btn btn-throw" onclick="sendEvent('throw', 'Volley', 5)">Throw 5 Cubes</button>
+    <button class="btn" style="background: #ffffff; color: #000;" onclick="sendFlashbang()">Flashbang</button>
+    <button class="btn" style="background: #7b1fa2; color: #fff;" onclick="sendProj('star')">Star</button>
+    <button class="btn" style="background: #e65100; color: #fff;" onclick="sendProj('nuke')">Nuke</button>
+    <button class="btn" style="background: #0277bd; color: #fff;" onclick="sendProj('pulse')">Pulse</button>
+    <button class="btn" style="background: #00695c; color: #fff;" onclick="sendProj('spiral')">Spiral</button>
+    <button class="btn btn-skip" onclick="sendSkip()">Skip Current</button>
+    <button class="btn btn-custom" onclick="sendStopAll()" style="background: #b71c1c;">Stop All</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Custom Event</h2>
+  <div class="field-row">
+    <div class="field">
+      <label>Type</label>
+      <select id="customType">
+        <option value="bits">Bits / Cheer</option>
+        <option value="subscription">Subscription</option>
+        <option value="subscription_gift">Gift Sub</option>
+        <option value="raid">Raid</option>
+        <option value="bomb">Bomb</option>
+        <option value="throw">Throw Cube (amount = count)</option>
+        <option value="flashbang">Flashbang</option>
+        <option value="projection">Projection</option>
+        <option value="cubeanimation">Lurk (Cube Animation)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>User</label>
+      <input id="customUser" value="TestUser" placeholder="Username">
+    </div>
+    <div class="field">
+      <label>Amount</label>
+      <input id="customAmount" type="number" value="100">
+    </div>
+  </div>
+  <div class="field">
+    <label>Message</label>
+    <input id="customMessage" value="" placeholder="Optional chat message">
+  </div>
+  <div class="field">
+    <label>Color (hex, optional)</label>
+    <input id="customColor" value="" placeholder="e.g. #FF0000">
+  </div>
+  <div class="field" id="projNameRow" style="display:none;">
+    <label>Projection Name</label>
+    <input id="customProjName" value="star" placeholder="star, nuke, pulse, spiral, or OBJ filename">
+  </div>
+  <button class="btn btn-custom" onclick="sendCustomEvent()">Send Custom Event</button>
+</div>
+
+<div class="card">
+  <h2>Event Log</h2>
+  <div id="log" class="log"></div>
+</div>
+
+<script>
+const port = PORT_PLACEHOLDER;
+let ws = null;
+let lastSend = 0;
+const DEBOUNCE_MS = 200;
+
+function connect() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  const url = 'ws://' + location.hostname + ':' + port + '/stream';
+  ws = new WebSocket(url);
+  ws.onopen = function() {
+    document.getElementById('statusBadge').className = 'status connected';
+    document.getElementById('statusBadge').textContent = 'Connected';
+    log('Connected to mod', 'ok');
+  };
+  ws.onclose = function() {
+    document.getElementById('statusBadge').className = 'status disconnected';
+    document.getElementById('statusBadge').textContent = 'Reconnecting...';
+    setTimeout(connect, 500);
+  };
+  ws.onerror = function() {
+    log('WebSocket error', 'err');
+  };
+}
+
+function sendEvent(type, user, amount, message, color) {
+  var now = Date.now();
+  if (now - lastSend < DEBOUNCE_MS) {
+    log('Please wait...', 'err');
+    return;
+  }
+  lastSend = now;
+
+  var payload = {
+    type: type,
+    data: {
+      user: user,
+      amount: amount,
+      message: message || '',
+      color: color || ''
+    }
+  };
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(payload));
+    log(type + ' - ' + user + ' (' + amount + ')', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendCustomEvent() {
+  var type = document.getElementById('customType').value.trim();
+  var user = document.getElementById('customUser').value.trim() || 'TestUser';
+  var amount = parseInt(document.getElementById('customAmount').value) || 0;
+  var message = document.getElementById('customMessage').value.trim();
+  var color = document.getElementById('customColor').value.trim();
+  if (!type) { log('Type is required', 'err'); return; }
+
+  if (type === 'projection') {
+    var name = document.getElementById('customProjName').value.trim() || 'star';
+    var payload = { type: 'projection', data: { name: name } };
+    if (color) payload.data.color = color;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+      log('projection: ' + name + (color ? ' (' + color + ')' : ''), 'ok');
+    } else { log('Not connected', 'err'); }
+    return;
+  }
+
+  if (type === 'cubeanimation' || type === 'lurk') {
+    var payload = { type: type, data: { user: user } };
+    if (message) payload.data.action = message.trim();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payload));
+      log(type + ': ' + user + (message ? ' (' + message + ')' : ''), 'ok');
+    } else { log('Not connected', 'err'); }
+    return;
+  }
+
+  sendEvent(type, user, amount, message, color);
+}
+
+document.getElementById('customType').addEventListener('change', function() {
+  document.getElementById('projNameRow').style.display = this.value === 'projection' ? '' : 'none';
+});
+
+function sendStopAll() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'stop_all' }));
+    log('Stop all effects sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendSocket(on) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'socket', data: { on: on } }));
+    log('Socket ' + (on ? 'enabled' : 'disabled') + ' sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendPause() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'pause' }));
+    log('Pause sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendUnpause() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'unpause' }));
+    log('Unpause sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendSkip() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'skip' }));
+    log('Skip current event sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendFlashbang() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'flashbang' }));
+    log('Flashbang sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function sendProj(name) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'projection', data: { name: name } }));
+    log('Projection: ' + name, 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = '<span class="log-time">[' + new Date().toLocaleTimeString() + ']</span> <span class="log-' + cls + '">' + msg + '</span>';
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+connect();
+
+if (location.pathname.endsWith('/generator')) {
+  document.querySelectorAll('nav a').forEach(function(a) {
+    if (a.getAttribute('href') === '/generator') a.classList.add('active');
+  });
+} else {
+  document.querySelectorAll('nav a').forEach(function(a) {
+    if (a.getAttribute('href') === '/') a.classList.add('active');
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StreamReactive Message Generator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
+  h1 { font-size: 1.6rem; margin-bottom: 6px; }
+  .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9rem; }
+  nav { margin-bottom: 20px; }
+  nav a { display: inline-block; padding: 8px 16px; border-radius: 8px 8px 0 0; color: #aaa; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+  nav a:hover { color: #eee; }
+  nav a.active { background: #16213e; color: #7ec8e3; }
+  .card { background: #16213e; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: #7ec8e3; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 0.8rem; color: #aaa; margin-bottom: 3px; }
+  .field label .req { color: #ef5350; margin-left: 4px; }
+  .field input, .field select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #333; background: #0f3460; color: #eee; font-size: 0.9rem; }
+  .field input:focus, .field select:focus { outline: none; border-color: #7ec8e3; }
+  .field-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .field-row .field { flex: 1; min-width: 180px; }
+  .hint { font-size: 0.72rem; color: #666; margin-top: 2px; }
+  .required-warn { color: #ffab40; font-size: 0.85rem; margin-bottom: 10px; min-height: 18px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab-btn { padding: 8px 18px; border: none; border-radius: 8px; background: #0f3460; color: #aaa; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+  .tab-btn.active { background: #7ec8e3; color: #06283d; }
+  .tab-panel { display: none; position: relative; }
+  .tab-panel.active { display: block; }
+  pre { background: #0d1b2a; border-radius: 8px; padding: 14px; font-family: 'Cascadia Code', 'Fira Code', Consolas, monospace; font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow-y: auto; }
+  .copy-btn { position: absolute; top: 8px; right: 8px; padding: 6px 14px; border: none; border-radius: 6px; background: #2e7d32; color: #fff; font-weight: 600; font-size: 0.8rem; cursor: pointer; }
+  .copy-btn:hover { filter: brightness(1.2); }
+  .copy-ok { background: #b71c1c !important; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Test Dashboard</a>
+  <a href="/generator">Message Generator</a>
+</nav>
+
+<h1>WebSocket Message Generator</h1>
+<p class="subtitle">Build a stream event payload and generate ready-made Streamer.bot code. Send it to <code>ws://localhost:PORT_PLACEHOLDER/stream</code></p>
+
+<div class="card">
+  <h2>1. Pick an event</h2>
+  <div class="field">
+    <select id="eventType">
+      <option value="bomb">Bomb</option>
+      <option value="bits">Bits / Cheer</option>
+      <option value="subscription">Subscription</option>
+      <option value="subscription_gift">Gift Sub</option>
+      <option value="raid">Raid</option>
+      <option value="flashbang">Flashbang</option>
+      <option value="cubeanimation">Lurk (Cube Animation)</option>
+      <option value="throw">Throw Projectiles</option>
+      <option value="projection">Projection</option>
+      <option value="socket">Socket (Enable / Disable)</option>
+      <option value="pause">Pause</option>
+      <option value="unpause">Unpause</option>
+      <option value="skip">Skip Current Event</option>
+      <option value="stop_all">Stop All Events</option>
+    </select>
+  </div>
+</div>
+
+<div class="card">
+  <h2>2. Fields</h2>
+  <p class="subtitle">Type a literal value (e.g. <code>#FF0000</code>, <code>100</code>) or a Streamer.bot argument placeholder (e.g. <code>%user%</code>, <code>%rawInput%</code>, <code>%color%</code>, <code>%bits%</code>). Placeholders also work inside the numeric Amount fields — e.g. <code>%websocketSlot%</code> — so you can define the value with an argument outside the code.</p>
+  <div id="fields" class="field-row"></div>
+  <div class="required-warn" id="warn"></div>
+</div>
+
+<div class="card">
+  <h2>3. Output</h2>
+  <div class="field" style="max-width:240px;">
+    <label>Streamer.bot WebSocket endpoint ID</label>
+    <input id="endpointId" type="text" value="3" placeholder="3 or %websocketSlot%">
+    <div class="hint">A number, or a placeholder like %websocketSlot% to set it with an argument.</div>
+  </div>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="message" onclick="showTab('message')">WebSocket Message</button>
+    <button class="tab-btn" data-tab="code" onclick="showTab('code')">Streamer.bot Code</button>
+  </div>
+  <div class="tab-panel active" data-tab="message">
+    <button class="copy-btn" onclick="copyActive()">Copy</button>
+    <pre id="outMessage"></pre>
+  </div>
+  <div class="tab-panel" data-tab="code">
+    <button class="copy-btn" onclick="copyActive()">Copy</button>
+    <pre id="outCode"></pre>
+  </div>
+</div>
+
+<script>
+const EVENTS = {
+  bomb: {
+    label: 'Bomb',
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, hint: '%user%' },
+      { key: 'amount', label: 'Amount (notes to explode)', required: false, num: true, hint: '%amount%' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#FF8000 or %color%' },
+      { key: 'message', label: 'Message', required: false, num: false, hint: '%rawInput%' }
+    ]
+  },
+  bits: {
+    label: 'Bits / Cheer',
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, hint: '%user%' },
+      { key: 'amount', label: 'Bits amount', required: true, num: true, hint: '%bits%' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#FFD700 or %color%' }
+    ]
+  },
+  subscription: {
+    label: 'Subscription',
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, hint: '%user%' },
+      { key: 'amount', label: 'Months subscribed', required: false, num: true, hint: '%months%' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#1EFF00 or %color%' }
+    ]
+  },
+  subscription_gift: {
+    label: 'Gift Sub',
+    fields: [
+      { key: 'user', label: 'Gifter username', required: true, num: false, hint: '%user%' },
+      { key: 'amount', label: 'Subs gifted', required: true, num: true, hint: '%amount%' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#1EFF00 or %color%' }
+    ]
+  },
+  raid: {
+    label: 'Raid',
+    fields: [
+      { key: 'user', label: 'Raid leader', required: true, num: false, hint: '%user%' },
+      { key: 'amount', label: 'Viewers', required: true, num: true, hint: '%viewers%' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#F6FF00 or %color%' }
+    ]
+  },
+  flashbang: {
+    label: 'Flashbang',
+    control: true,
+    note: 'Blinds the player with a white-out flash in the headset only - invisible on stream/OBS and in desktop previews. Duration, opacity and fade are configured in-game.'
+  },
+  cubeanimation: {
+    label: 'Lurk (Cube Animation)',
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, hint: '%user%' },
+      { key: 'scale', label: 'Note Scale', required: false, num: true, hint: 'overrides the in-game Note Scale, e.g. 0.6 (default 0.4)' }
+    ],
+    note: 'A small note pops up at its fixed world spot, tilts around curiously with the viewer\'s name over it, then sinks back down. Spawn position, facing and timing are hardcoded in the mod.'
+  },
+  throw: {
+    label: 'Throw Projectiles',
+    fields: [
+      { key: 'amount', label: 'Projectiles', required: false, num: true, hint: '%amount% (defaults to 1; no fixed max - capped by your Max Projectiles in-game)' },
+      { key: 'scale', label: 'Note Scale', required: false, num: true, hint: 'overrides the in-game Note Scale, e.g. 1.5 (1 = full-size note). No upper cap here - you can send 1000.' },
+      { key: 'spawn', label: 'Spawn Point', required: false, options: ['Twin Cannons', 'Random Around', 'Front Center', 'Horizon Front'], hint: 'Where the throw launches from. Leave as (default) to use your in-game Launch Pattern.' },
+      { key: 'arc', label: 'Arc / Flight Time (sec)', required: false, num: true, hint: 'overrides the in-game Air Time / Arc - controls how high the throw lobs. Short = flat, long = high. Lofted trajectory only.' }
+    ],
+    note: 'Launches note projectiles at the player. Trajectory (Lofted vs Zero-G) and gravity come from the in-game Throw tab; the optional scale, spawn and arc fields override those defaults for this throw only.'
+  },
+  projection: {
+    label: 'Projection',
+    fields: [
+      { key: 'name', label: 'Projection name', required: false, num: false, hint: 'star, nuke, pulse, spiral, or an OBJ filename' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#FF6600 or %color%' },
+      { key: 'duration', label: 'Duration (seconds)', required: false, num: true, hint: 'overrides in-game default' },
+      { key: 'size', label: 'Size (meters)', required: false, num: true, hint: 'overrides in-game default' },
+      { key: 'positionX', label: 'Position X', required: false, num: true, hint: 'world offset (default 0)' },
+      { key: 'positionY', label: 'Position Y', required: false, num: true, hint: 'world offset (default 1.5 above floor)' },
+      { key: 'positionZ', label: 'Position Z / Distance', required: false, num: true, hint: 'in front of player (default 10)' },
+      { key: 'rotationX', label: 'Rotation X (degrees)', required: false, num: true, hint: 'pitch (default 0)' },
+      { key: 'rotationY', label: 'Rotation Y (degrees)', required: false, num: true, hint: 'yaw (default 0)' },
+      { key: 'rotationZ', label: 'Rotation Z (degrees)', required: false, num: true, hint: 'roll (default 0)' }
+    ],
+    note: 'Projects a 3D particle shape in front of the player. Built-in presets: star (static 3D), nuke (animated mushroom cloud), pulse (breathing), spiral (4 orbiting emitter streams). Drop custom .obj files in UserData/StreamReactive/Projections/. Position and rotation override the projection\'s placement.'
+  },
+  skip: {
+    label: 'Skip Current Event',
+    control: true,
+    note: 'Skips the currently playing event — clears its notes, text and particles and lets the next queued event start.'
+  },
+  stop_all: {
+    label: 'Stop All Events',
+    control: true,
+    note: 'Stops everything immediately: clears all queued and active events, kills every particle, projectile and any active flash.'
+  },
+  socket: {
+    label: 'Socket (Enable / Disable)',
+    fields: [
+      { key: 'on', label: 'Enable / Disable', required: true, bool: true, default: 'true', hint: 'true = enable, false = disable' }
+    ],
+    note: 'Turns the whole plugin on or off. Disabling clears all queued/active effects but keeps the WebSocket open so you can always enable again.'
+  },
+  pause: {
+    label: 'Pause',
+    control: true,
+    note: 'Mod stays enabled and keeps accepting events into the queue, but nothing plays until unpaused.'
+  },
+  unpause: {
+    label: 'Unpause',
+    control: true,
+    note: 'Resumes playback of queued events. (Alias "resume" also works.)'
+  }
+};
+
+let currentType = 'bomb';
+
+function buildFields() {
+  const container = document.getElementById('fields');
+  container.innerHTML = '';
+  const ev = EVENTS[currentType];
+  if (ev.note) {
+    const p = document.createElement('p');
+    p.style.color = '#888';
+    p.style.fontSize = '0.85rem';
+    p.textContent = ev.note;
+    container.appendChild(p);
+  }
+  if (ev.control) {
+    generate();
+    return;
+  }
+  ev.fields.forEach(f => {
+    const div = document.createElement('div');
+    div.className = 'field';
+
+    let inputHtml;
+    if (f.options) {
+      // Dropdown field: present the allowed values. An empty first option
+      // ("(default)") means "omit this field from the payload".
+      const opts = ['', ...f.options];
+      const rows = opts.map(function(o) {
+        const label = o === '' ? '(default)' : o;
+        const sel = (f.default || '') === o ? ' selected' : '';
+        return '<option value="' + o + '"' + sel + '>' + label + '</option>';
+      }).join('');
+      inputHtml = '<select data-key="' + f.key + '">' + rows + '</select>';
+    } else {
+      inputHtml =
+        '<input data-key="' + f.key + '" type="text" value="' + (f.default || '') + '" placeholder="' + f.hint.replace(/"/g, '&quot;') + '">';
+    }
+
+    div.innerHTML =
+      '<label>' + f.label + (f.required ? '<span class="req" title="Required">*</span>' : '') + ' <span style="color:#555;">(optional)</span></label>' +
+      inputHtml +
+      '<div class="hint">' + f.hint.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
+    container.appendChild(div);
+  });
+  container.querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', generate);
+  });
+  container.querySelectorAll('select').forEach(sel => {
+    sel.addEventListener('change', generate);
+  });
+  generate();
+}
+
+function getValues() {
+  const vals = {};
+  document.querySelectorAll('#fields input, #fields select').forEach(inp => {
+    vals[inp.dataset.key] = inp.value.trim();
+  });
+  return vals;
+}
+
+function jstr(s) {
+  return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
+}
+
+function emitValue(f, v) {
+  // Numeric literal passes through as a JSON number; anything containing a
+  // %placeholder% is emitted as a quoted string so the generated code can
+  // substitute it (e.g. type %websocketSlot% into an Amount field).
+  if (f.num && !/%/.test(v)) return v;
+  // Boolean field (socket.on) emits a raw true/false literal. A %placeholder%
+  // falls through to the quoted-string path so code substitutes it.
+  if (f.bool && !/%/.test(v)) {
+    const b = v.trim().toLowerCase();
+    if (b === 'true' || b === 'false') return b;
+  }
+  return jstr(v);
+}
+
+function buildPayload(vals) {
+  const ev = EVENTS[currentType];
+  if (ev.control) {
+    return { text: '{\n  "type": ' + jstr(currentType) + '\n}', missing: [] };
+  }
+  const data = [];
+  const missing = [];
+  ev.fields.forEach(f => {
+    const v = vals[f.key];
+    if (v === '') {
+      if (f.required) missing.push(f.label);
+      return;
+    }
+    data.push('    "' + f.key + '": ' + emitValue(f, v));
+  });
+  const text =
+    '{\n' +
+    '  "type": ' + jstr(currentType) + ',\n' +
+    '  "data": {\n' +
+    data.join(',\n') +
+    '\n  }\n' +
+    '}';
+  return { text, missing };
+}
+
+function buildPayloadCompact(vals) {
+  const ev = EVENTS[currentType];
+  if (ev.control) return '{' + '"type": ' + jstr(currentType) + '}';
+  const data = [];
+  ev.fields.forEach(f => {
+    const v = vals[f.key];
+    if (v === '') return;
+    data.push('"' + f.key + '": ' + emitValue(f, v));
+  });
+  return '{' + '"type": ' + jstr(currentType) + ', "data": {' + data.join(', ') + '}}';
+}
+
+function csharpExpr(arg) {
+  const Q = '"';
+  const B = '\\';
+  const arg1 = Q + B + Q + Q;
+  const arg2 = Q + B + B + B + Q + Q;
+  return 'Convert.ToString(args["' + arg + '"]).Replace(' + arg1 + ', ' + arg2 + ')';
+}
+
+function buildCSharp(vals) {
+  const compact = buildPayloadCompact(vals);
+  const literal = JSON.stringify(compact);
+  const tokens = Array.from(new Set(compact.match(/%([A-Za-z0-9_]+)%/g) || []));
+  const endpointRaw = document.getElementById('endpointId').value.trim() || '3';
+  // A literal number passes straight through; a %placeholder% is emitted as a
+  // Convert.ToInt32(...) expression so Streamer.bot substitutes it via an argument.
+  let endpoint;
+  if (/%/.test(endpointRaw)) {
+    const arg = endpointRaw.replace(/%/g, '');
+    endpoint = 'Convert.ToInt32(' + csharpExpr(arg) + ')';
+  } else {
+    endpoint = endpointRaw;
+  }
+  const lines = [];
+  lines.push('using System;');
+  lines.push('');
+  lines.push('public class CPHInline');
+  lines.push('{');
+  lines.push('\tpublic bool Execute()');
+  lines.push('\t{');
+  lines.push('\t\tvar payload = ' + literal + ';');
+  tokens.forEach(t => {
+    const arg = t.slice(1, -1);
+    lines.push('\t\tpayload = payload.Replace("' + t + '", ' + csharpExpr(arg) + ');');
+  });
+  lines.push('');
+  lines.push('\t\tCPH.WebsocketSend(payload, ' + endpoint + ');');
+  lines.push('\t\treturn true;');
+  lines.push('\t}');
+  lines.push('}');
+  return lines.join('\n');
+}
+
+function generate() {
+  const vals = getValues();
+  const { text, missing } = buildPayload(vals);
+  document.getElementById('outMessage').textContent = text;
+  document.getElementById('outCode').textContent = buildCSharp(vals);
+
+  const warn = document.getElementById('warn');
+  if (missing.length) {
+    warn.textContent = 'Missing required: ' + missing.join(', ') + ' — will be omitted from the payload.';
+  } else {
+    warn.textContent = '';
+  }
+}
+
+function showTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tab === name));
+}
+
+function copyActive() {
+  const pre = document.querySelector('.tab-panel.active pre');
+  if (!pre) return;
+  const btn = document.querySelector('.tab-panel.active .copy-btn');
+  const done = function() {
+    if (!btn) return;
+    btn.textContent = 'Copied';
+    btn.classList.add('copy-ok');
+    setTimeout(function() {
+      btn.textContent = 'Copy';
+      btn.classList.remove('copy-ok');
+    }, 1200);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(pre.textContent).then(done);
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = pre.textContent;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(ta);
+    done();
+  }
+}
+
+document.getElementById('eventType').addEventListener('change', function() {
+  currentType = this.value;
+  buildFields();
+});
+
+document.getElementById('endpointId').addEventListener('input', generate);
+
+if (location.pathname.endsWith('/generator')) {
+  document.querySelectorAll('nav a').forEach(function(a) {
+    if (a.getAttribute('href') === '/generator') a.classList.add('active');
+  });
+}
+
+buildFields();
+</script>
+</body>
+</html>

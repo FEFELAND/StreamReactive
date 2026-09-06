@@ -1,0 +1,19 @@
+# Build output
+obj/
+bin/
+*.manifest
+
+# Local / per-machine (contains your Beat Saber install path)
+*.csproj.user
+
+# Rider machine-specific settings
+.idea/
+*.sln.iml
+
+# Local testing and logs (dev-only, never shipped)
+ext/
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db

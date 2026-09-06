@@ -1,0 +1,414 @@
+<vertical xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance'
+          xsi:noNamespaceSchemaLocation='https://monkeymanboy.github.io/BSML-Docs/BSMLSchema.xsd'
+          child-control-height='false' spacing="2" pref-width="130" pref-height="60">
+  <macro.define id="sp" value="1.5"/>
+  <macro.define id="page-width" value="100"/>
+  <horizontal child-expand-height="true">
+
+    <!-- ===================== LEFT: category list ===================== -->
+    <vertical id="category-list" bg="round-rect-panel" pad="1" spacing="1" pref-width="26" child-expand-height="true">
+      <text text="Categories" font-size="3.5" align="Center"/>
+      <sr-scroll>
+        <button id="nav-general" text="General"  on-click="select-general" hover-hint="Plugin toggle and connection settings"/>
+        <button id="nav-bomb" text="Bomb"  on-click="select-bomb" hover-hint="bomb effect settings"/>
+<button id="nav-bits" text="Bits" on-click="select-bits" hover-hint="Bit tier effect settings"/>
+        <button id="nav-subs" text="Subs"  on-click="select-subs" hover-hint="Subscription event effect settings"/>
+        <button id="nav-raid" text="Raid"  on-click="select-raid" hover-hint="Raid event effect settings"/>
+        <button id="nav-flashbang" text="Flashbang"  on-click="select-flashbang" hover-hint="White-out flash effect settings"/>
+        <button id="nav-projection" text="Projection"  on-click="select-projection" hover-hint="3D particle projection effects"/>
+        <button id="nav-throw" text="Throw"  on-click="select-throw" hover-hint="Capsule (throw target) and projectile settings"/>
+        <button id="nav-emotes" text="Emotes"  on-click="select-emotes" hover-hint="Twitch emote throw and rain effects"/>
+        <button id="nav-chat" text="Chat" on-click="select-chat" hover-hint="Twitch chat panel settings"/>
+        <button id="nav-about" text="About"  on-click="select-about" hover-hint="Mod info"/>
+      </sr-scroll>
+    </vertical>
+
+    <!-- ===================== RIGHT: category pages ===================== -->
+    <vertical id="category-pages" child-control-height="false" child-expand-height="true">
+
+      <vertical id="page-general" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <bool-setting text="Enabled" value="enabled" apply-on-change="true" bind-value="true" hover-hint="Enable or disable all StreamReactive effects"/>
+          <bool-setting text="Paused" value="paused" apply-on-change="true" bind-value="true" hover-hint="Hold event playback: new events are still accepted and queued, but nothing plays until this is turned off."/>
+          <bool-setting text="Include Bomb Notes" value="include-bomb-notes" apply-on-change="true" bind-value="true" hover-hint="Include bomb notes in particle/text effects"/>
+          <string-setting text="WebSocket Port" value="ws-port" apply-on-change="true" hover-hint="Port for the WebSocket server (restart required)"/>
+          <button text="Open Test Dashboard" on-click="open-dashboard" hover-hint="Opens the testing dashboard in your web browser"/>
+          <horizontal bg="round-rect-panel" pad="2">
+            <text text="Connect your bot to ws://localhost:PORT/stream as a WebSocket client." font-size="2.8" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+          <string-setting text="Twitch Channel" value="twitch-channel-name" apply-on-change="true" bind-value="true" hover-hint="Your Twitch username (without the @) - used by emotes and the Chat overlay"/>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Note Outline" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <bool-setting text="Enabled" value="note-outline-enabled" apply-on-change="true" bind-value="true" hover-hint="Draw the particle outline that hugs claimed notes during bit/sub/raid effects."/>
+          <slider-setting show-buttons="true" text="Particle Size" min="0.001" max="0.1" increment="0.002" value="note-outline-size" apply-on-change="true" bind-value="true" hover-hint="Size of each dot in the outline. Bigger = chunkier, bolder outline; smaller = finer and subtler."/>
+          <slider-setting show-buttons="true" text="Density" min="10" max="2000" increment="10" integer-only="true" value="note-outline-density" apply-on-change="true" bind-value="true" hover-hint="How many particles the outline emits per second. Lower = sparser/less distracting; higher = fuller outline."/>
+          <slider-setting show-buttons="true" text="Opacity" min="0" max="1" increment="0.05" value="note-outline-opacity" apply-on-change="true" bind-value="true" hover-hint="Overall brightness of the outline. 0 = invisible, 1 = full strength."/>
+          <slider-setting show-buttons="true" text="Scale" min="0.2" max="3" increment="0.05" value="note-outline-scale" apply-on-change="true" bind-value="true" hover-hint="Multiplier to match your in-game Note Scale. 1 = 100% note scale; adjust as needed."/>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Map Protection" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <bool-setting text="Pause on Noodle Maps" value="pause-on-noodle-maps" apply-on-change="true" bind-value="true" hover-hint="While the playing map requires NoodleExtensions, hold all StreamReactive events until the map finishes."/>
+          <bool-setting text="Pause on Vivify Maps" value="pause-on-vivify-maps" apply-on-change="true" bind-value="true" hover-hint="While the playing map requires Vivify, hold all StreamReactive events until the map finishes."/>
+          <bool-setting text="Pause on WIP Maps" value="pause-on-wip-maps" apply-on-change="true" bind-value="true" hover-hint="While the playing map is a Work-in-Progress (loaded from the CustomWIPLevels folder), hold all StreamReactive events until the map finishes."/>
+          <bool-setting text="Pause on Ranked Maps" value="pause-on-ranked-maps" apply-on-change="true" bind-value="true" hover-hint="While the playing map is ranked on BeatLeader, ScoreSaber, or both, hold all StreamReactive events until the map finishes. Requires the SongDetailsCache mod."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-bomb" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <bool-setting text="Bomb Cosmetics" value="bomb-cosmetic-enabled" apply-on-change="true" bind-value="true" hover-hint="Swap affected notes for a bomb visual during the effect."/>
+          <dropdown-list-setting text="Color Mode" value="bomb-color-mode" choices="bomb-color-mode-options" apply-on-change="true" bind-value="true"/>
+          <color-setting id="bomb-particle-color" text="Particle Color" value="bomb-particle-color" apply-on-change="true" bind-value="true" hover-hint="Used when Color Mode is Static"/>
+          <slider-setting id="bomb-rainbow-speed" show-buttons="true" text="Rainbow Speed" min="0.05" max="5" increment="0.05" value="bomb-rainbow-speed" apply-on-change="true" bind-value="true" hover-hint="How fast the color cycles in Rainbow mode"/>
+          <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="bomb-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of floating bomb text. 12 is the default."/>
+          <slider-setting show-buttons="true" text="Text Lifetime" min="0.5" max="10" increment="0.5" value="bomb-text-lifetime" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Text Line Spacing" min="-30" max="100" increment="5" value="bomb-text-line-spacing" apply-on-change="true" bind-value="true" hover-hint="Adjusts vertical gap between lines of bomb text (percent). Negative values tighten; useful when big emoji or rotated glyphs blow up line heights."/>
+          <slider-setting show-buttons="true" text="Max Message Tag Size" min="0" max="60" increment="1" value="max-text-size" apply-on-change="true" bind-value="true" hover-hint="Viewers can hide a formatting code in their message to make words bigger. This caps how big those codes can make text. 0 = no limit."/>
+          <slider-setting show-buttons="true" text="Max Message Words" min="0" max="100" increment="1" integer-only="true" value="max-message-words" apply-on-change="true" bind-value="true" hover-hint="Limits how many words viewer messages can contain. Counts words, not characters, so a few very long words is fine. Extra words are dropped. 0 = no limit."/>
+          <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="bomb-particle-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+          <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="bomb-particle-scale" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="bomb-particle-lifetime" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="bomb-particle-speed" apply-on-change="true" bind-value="true"/>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <dropdown-list-setting id="bomb-sound" text="Sound File" choices="sound-file-options" value="bomb-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played each time a bomb note is cut. None = silent."/>
+          <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="bomb-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud the bomb sound plays. 0 = mute, 1 = 100%."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-bits" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="1">
+        <tab-selector tab-tag="bits-pages"/>
+        <tab tab-name="Global" tags="bits-pages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="bits-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of floating bit text. 8 is the default."/>
+              <slider-setting show-buttons="true" text="Text Lifetime" min="0.5" max="10" increment="0.5" value="bits-text-lifetime" apply-on-change="true" bind-value="true"/>
+              <bool-setting text="Text on Every Event" value="text-spawn-every-event" apply-on-change="true" bind-value="true"/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+        <tab tab-name="&lt;100" tags="bits-pages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <color-setting text="Color" value="bit-tier-default-color" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Bits per Block" min="1" max="100" increment="1" value="bit-tier-default-block-ratio" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="How many bits in this tier trigger one block effect"/>
+              <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="bit-tier-default-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+              <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="bit-tier-default-scale" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="bit-tier-default-lifetime" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="bit-tier-default-speed" apply-on-change="true" bind-value="true"/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting id="bit-tier-default-sound" text="Sound File" choices="sound-file-options" value="bit-tier-default-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on bit events in this tier. None = silent."/>
+              <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="bit-tier-default-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud this tier's sound plays. 0 = mute, 1 = 100%."/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+        <tab tab-name="≥100" tags="bits-pages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <color-setting text="Color" value="bit-tier-100-color" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Bits per Block" min="1" max="100" increment="1" value="bit-tier-100-block-ratio" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="How many bits in this tier trigger one block effect"/>
+              <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="bit-tier-100-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+              <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="bit-tier-100-scale" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="bit-tier-100-lifetime" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="bit-tier-100-speed" apply-on-change="true" bind-value="true"/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting id="bit-tier-100-sound" text="Sound File" choices="sound-file-options" value="bit-tier-100-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on bit events in this tier. None = silent."/>
+              <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="bit-tier-100-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud this tier's sound plays. 0 = mute, 1 = 100%."/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+        <tab tab-name="≥1k" tags="bits-pages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <color-setting text="Color" value="bit-tier-1000-color" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Bits per Block" min="1" max="100" increment="1" value="bit-tier-1000-block-ratio" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="How many bits in this tier trigger one block effect"/>
+              <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="bit-tier-1000-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+              <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="bit-tier-1000-scale" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="bit-tier-1000-lifetime" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="bit-tier-1000-speed" apply-on-change="true" bind-value="true"/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting id="bit-tier-1000-sound" text="Sound File" choices="sound-file-options" value="bit-tier-1000-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on bit events in this tier. None = silent."/>
+              <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="bit-tier-1000-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud this tier's sound plays. 0 = mute, 1 = 100%."/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+        <tab tab-name="≥5k" tags="bits-pages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <color-setting text="Color" value="bit-tier-5000-color" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Bits per Block" min="1" max="100" increment="1" value="bit-tier-5000-block-ratio" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="How many bits in this tier trigger one block effect"/>
+              <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="bit-tier-5000-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+              <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="bit-tier-5000-scale" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="bit-tier-5000-lifetime" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="bit-tier-5000-speed" apply-on-change="true" bind-value="true"/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting id="bit-tier-5000-sound" text="Sound File" choices="sound-file-options" value="bit-tier-5000-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on bit events in this tier. None = silent."/>
+              <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="bit-tier-5000-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud this tier's sound plays. 0 = mute, 1 = 100%."/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+        <tab tab-name="≥10k" tags="bits-pages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <color-setting text="Color" value="bit-tier-10000-color" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Bits per Block" min="1" max="100" increment="1" value="bit-tier-10000-block-ratio" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="How many bits in this tier trigger one block effect"/>
+              <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="bit-tier-10000-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+              <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="bit-tier-10000-scale" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="bit-tier-10000-lifetime" apply-on-change="true" bind-value="true"/>
+              <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="bit-tier-10000-speed" apply-on-change="true" bind-value="true"/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting id="bit-tier-10000-sound" text="Sound File" choices="sound-file-options" value="bit-tier-10000-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on bit events in this tier. None = silent."/>
+              <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="bit-tier-10000-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud this tier's sound plays. 0 = mute, 1 = 100%."/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+      </vertical>
+
+      <vertical id="page-subs" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <slider-setting show-buttons="true" text="Timer Duration" min="1" max="60" increment="0.5" value="sub-timer-duration" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="sub-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of the floating sub message text. 10 is the default."/>
+          <bool-setting text="Enable Trails" value="sub-trail-enabled" apply-on-change="true" bind-value="true"/>
+          <color-setting text="Particle Color" value="sub-particle-color" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="sub-particle-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+          <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="sub-particle-scale" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="sub-particle-lifetime" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="sub-particle-speed" apply-on-change="true" bind-value="true"/>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <dropdown-list-setting id="sub-sound" text="Sound File" choices="sound-file-options" value="sub-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on subscription events. None = silent."/>
+          <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="sub-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud the sub sound plays. 0 = mute, 1 = 100%."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-raid" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <slider-setting show-buttons="true" text="Timer Duration" min="1" max="60" increment="0.5" value="raid-timer-duration" apply-on-change="true" bind-value="true" hover-hint="Effects last at least this long. If many raiders, effects continue until all are exhausted."/>
+          <slider-setting show-buttons="true" text="Blocks per Raider" min="1" max="100" increment="1" value="raid-multiplier" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="1 = one block per raider"/>
+          <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="raid-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of floating raid text. 8 is the default."/>
+          <color-setting text="Particle Color" value="raid-particle-color" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="raid-particle-count" apply-on-change="true" bind-value="true" hover-hint="How many particles spawn. 0 disables particles for this effect (text still shows)."/>
+          <slider-setting show-buttons="true" text="Particle Scale" min="0.001" max="0.1" increment="0.001" value="raid-particle-scale" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Lifetime" min="0.05" max="5" increment="0.05" value="raid-particle-lifetime" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Particle Speed" min="0.01" max="20" increment="0.01" value="raid-particle-speed" apply-on-change="true" bind-value="true"/>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <dropdown-list-setting id="raid-sound" text="Sound File" choices="sound-file-options" value="raid-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played on raid events. None = silent."/>
+          <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="raid-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud the raid sound plays. 0 = mute, 1 = 100%."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-flashbang" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <slider-setting show-buttons="true" text="Duration" min="0.5" max="10" increment="0.5" value="flashbang-duration" apply-on-change="true" bind-value="true" hover-hint="Seconds the flash lasts. The last Fade Out seconds of it are spent dimming back to clear."/>
+          <slider-setting show-buttons="true" text="Opacity" min="0" max="100" increment="5" value="flashbang-opacity" apply-on-change="true" bind-value="true" hover-hint="How opaque the flash gets at its peak. 100 = fully blind, 50 = bright wash you can still sort of see through."/>
+          <slider-setting show-buttons="true" text="Fade Out" min="0" max="8" increment="0.25" value="flashbang-fadeout" apply-on-change="true" bind-value="true" hover-hint="Seconds spent fading from peak opacity back to nothing at the end of the flash. 0 = stays at full strength until it pops off instantly."/>
+          <string-setting text="Viewer Text" value="flashbang-viewer-text" apply-on-change="true" hover-hint="Text shown to viewers when the streamer is blinded. Leave empty to hide."/>
+          <slider-setting show-buttons="true" text="Viewer Text Size" min="0.5" max="10" increment="0.25" value="flashbang-viewer-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of the viewer text shown while the streamer is blinded."/>
+          <color-setting text="Viewer Text Color" value="flashbang-viewer-text-color" apply-on-change="true" hover-hint="Color of the viewer visibility text."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-projection" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-width="true" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Global defaults — per-trigger overrides via websocket message (name, color, duration, size, position x/y/z, rotation x/y/z)." font-size="2.5" word-wrapping="true" color="#888"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Drop custom OBJ files in UserData/StreamReactive/Projections/ — reference by filename without .obj. Built-in: star, nuke, pulse, spiral." font-size="2.5" word-wrapping="true" color="#666"/>
+          </horizontal>
+          <slider-setting show-buttons="true" text="Duration" min="0.5" max="30" increment="0.5" value="projection-duration" apply-on-change="true" bind-value="true" hover-hint="How long the projection hangs in the air before fading away."/>
+          <slider-setting show-buttons="true" text="Fade In" min="0" max="5" increment="0.25" value="projection-fade-in" apply-on-change="true" bind-value="true" hover-hint="Seconds for the projection to appear from nothing."/>
+          <slider-setting show-buttons="true" text="Fade Out" min="0" max="8" increment="0.25" value="projection-fade-out" apply-on-change="true" bind-value="true" hover-hint="Seconds for the projection to dissolve away at the end."/>
+          <slider-setting show-buttons="true" text="Size (meters)" min="0.5" max="10" increment="0.1" value="projection-size" apply-on-change="true" bind-value="true" hover-hint="How big the projection is in world space. A phoenix at 3m fills most of the play area."/>
+          <slider-setting show-buttons="true" text="Distance (meters)" min="1" max="15" increment="0.5" value="projection-distance" apply-on-change="true" bind-value="true" hover-hint="How far in front of the play area center the projection appears."/>
+          <slider-setting show-buttons="true" text="Particle Size" min="0.005" max="0.1" increment="0.005" value="projection-particle-size" apply-on-change="true" bind-value="true" hover-hint="Size of each dot in the projection. Smaller = finer detail, larger = chunkier look."/>
+          <slider-setting show-buttons="true" text="Particle Count" min="0" max="50000" increment="10" integer-only="true" value="projection-particle-count" apply-on-change="true" bind-value="true" hover-hint="Number of dots that make up the projection. More = denser shape but slightly heavier. 0 hides the projection."/>
+          <color-setting text="Default Color" value="projection-color" apply-on-change="true" hover-hint="Default tint for all projections. Override per-call with the 'color' field in the websocket message."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-throw" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <tab-selector tab-tag="throw-subpages"/>
+
+        <tab tab-name="Projectile" tags="throw-subpages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <bool-setting text="Enable Throw" value="capsule-guard-enabled" apply-on-change="true" bind-value="true" hover-hint="A capsule that follows you and bounces thrown projectiles. Turn this on for any throw feature to work."/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Combo Throw" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <bool-setting text="Throw On Combo Break" value="combo-throw-enabled" apply-on-change="true" bind-value="true" hover-hint="When your combo breaks from at/above the threshold below, a block is thrown at you automatically. Requires Enable Throw above."/>
+              <slider-setting show-buttons="true" text="Trigger From (combo)" min="0" max="100" increment="1" integer-only="true" value="combo-throw-threshold" apply-on-change="true" bind-value="true" hover-hint="Minimum combo you must have when you break it for a block to be thrown. 0 = every break throws."/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="General Settings" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting text="Launch Pattern" value="throw-origin-mode" choices="throw-origin-mode-options" apply-on-change="true" bind-value="true" hover-hint="Twin Cannons: two static points ahead alternating. Random Around: anywhere in a sphere. Front Center: straight ahead. Horizon Front: a single centered point far in the distance."/>
+              <slider-setting show-buttons="true" text="Note Scale" min="0.2" max="3" increment="0.05" value="throw-note-scale" apply-on-change="true" bind-value="true" hover-hint="Multiplier on the thrown note's size relative to a full-size note. 1 = the projectile matches a regular note; lower makes it smaller, higher bigger. The websocket 'scale' field overrides this per-message and has no upper cap."/>
+              <bool-setting text="Match Collision To Scale" value="throw-match-collision-scale" apply-on-change="true" bind-value="true" hover-hint="Hit detection matches the note's visual size, so big scaled notes collide from far away."/>
+              <slider-setting show-buttons="true" text="Max Projectiles" min="1" max="200" increment="1" value="throw-max-projectiles" apply-on-change="true" bind-value="true" hover-hint="How many projectiles may exist at once. Lower this if spawning causes stutters."/>
+              <slider-setting show-buttons="true" text="Despawn Fade" min="0" max="3" increment="0.05" value="throw-fade-seconds" apply-on-change="true" bind-value="true" hover-hint="Seconds a projectile spends shrinking away at the end of its life. 0 = pop out of existence instantly."/>
+              <slider-setting show-buttons="true" text="Lifetime" min="1" max="120" increment="0.5" value="throw-lifetime" apply-on-change="true" bind-value="true" hover-hint="Seconds a projectile lives before it despawns (and fades out), even if it never fell off the floor."/>
+              <dropdown-list-setting text="Trajectory" value="throw-trajectory" choices="throw-trajectory-options" apply-on-change="true" bind-value="true" hover-hint="Lofted: projectiles arc to you (Air Time + Gravity). Zero-G: no gravity, straight-line pinball bounces (Throw Speed)."/>
+              <slider-setting id="throw-air-time-row" show-buttons="true" text="Air Time / Arc" min="0.4" max="20" increment="0.05" value="throw-air-time" apply-on-change="true" bind-value="true" hover-hint="Lofted mode only: seconds of flight to reach you. Short = flat laser, long = high lob."/>
+              <slider-setting id="throw-gravity-row" show-buttons="true" text="Cube Gravity" min="0" max="15" increment="0.5" value="throw-gravity" apply-on-change="true" bind-value="true" hover-hint="Lofted mode only: downward pull while airborne. Together with Air Time it shapes how lofty the arc looks; throws always arrive at the capsule."/>
+              <slider-setting id="throw-speed-row" show-buttons="true" text="Throw Speed" min="5" max="25" increment="0.5" value="throw-speed" apply-on-change="true" bind-value="true" hover-hint="Zero-G mode only: launch strength for straight pinball shots."/>
+              <slider-setting show-buttons="true" text="Bounciness (Floor)" min="0" max="0.95" increment="0.05" value="throw-bounciness" apply-on-change="true" bind-value="true" hover-hint="How much speed projectiles keep when bouncing on the FLOOR. 0 = dead stop, high = lively bounces."/>
+              <slider-setting show-buttons="true" text="Bounciness (Capsule)" min="0" max="0.95" increment="0.05" value="throw-capsule-bounciness" apply-on-change="true" bind-value="true" hover-hint="How much speed projectiles keep when bouncing off the CAPSULE. 0 = they drop dead where they hit you."/>
+              <slider-setting show-buttons="true" text="Floor Friction" min="0" max="30" increment="0.5" value="throw-floor-friction" apply-on-change="true" bind-value="true" hover-hint="How fast sliding projectiles slow down after landing. 0 = slide until they fall off the platform; high = stop almost instantly."/>
+              <slider-setting show-buttons="true" text="Floor Width" min="1" max="20" increment="0.5" value="throw-floor-width" apply-on-change="true" bind-value="true" hover-hint="Bounce floor extent, left-right in meters, centered on the platform. Cubes past the edge fall off."/>
+              <slider-setting show-buttons="true" text="Floor Depth" min="1" max="20" increment="0.5" value="throw-floor-depth" apply-on-change="true" bind-value="true" hover-hint="Bounce floor extent, front-back in meters, centered on the platform. Cubes past the edge fall off."/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <dropdown-list-setting id="throw-hit-sound" text="Capsule Hit Sound" choices="sound-file-options" value="throw-hit-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played each time a thrown block bounces off the guard capsule. Independent of whether Explosion On Capsule Contact is on. None = silent."/>
+              <slider-setting show-buttons="true" text="Hit Sound Volume" min="0" max="1" increment="0.01" value="throw-hit-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud the capsule-hit sound plays. 0 = mute, 1 = 100%."/>
+              <horizontal bg="round-rect-panel" pad="1">
+                <text text="Explosion On Capsule Contact" font-size="3.5" font-weight="Bold"/>
+              </horizontal>
+              <bool-setting text="Enabled" value="throw-explode-enabled" apply-on-change="true" bind-value="true" hover-hint="When a thrown block strikes the guard capsule it bursts into a small particle puff."/>
+              <vertical id="throw-explode-section" spacing="~sp">
+                <slider-setting show-buttons="true" text="Particle Count" min="0" max="200" increment="10" integer-only="true" value="throw-explode-count" apply-on-change="true" bind-value="true" hover-hint="How many particles the burst spawns. 0 disables the burst."/>
+                <slider-setting show-buttons="true" text="Burst Speed" min="0.05" max="5" increment="0.05" value="throw-explode-speed" apply-on-change="true" bind-value="true" hover-hint="How fast the particles fly outward from the block."/>
+                <slider-setting show-buttons="true" text="Particle Size" min="0.005" max="0.1" increment="0.005" value="throw-explode-scale" apply-on-change="true" bind-value="true" hover-hint="Size of each particle."/>
+                <slider-setting show-buttons="true" text="Particle Lifetime" min="0.1" max="3" increment="0.05" value="throw-explode-lifetime" apply-on-change="true" bind-value="true" hover-hint="Seconds the particles live before fading out."/>
+                <bool-setting text="Use Note Color" value="throw-explode-use-note-color" apply-on-change="true" bind-value="true" hover-hint="Tint the burst with the block's red/blue note color. Turn off to use a fixed color below."/>
+                <color-setting id="throw-explode-color-row" text="Fixed Color" value="throw-explode-color" apply-on-change="true" bind-value="true" hover-hint="Only used when 'Use Note Color' is off."/>
+              </vertical>
+            </sr-scroll>
+          </vertical>
+        </tab>
+
+        <tab tab-name="Capsule" tags="throw-subpages">
+          <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
+            <sr-scroll>
+              <bool-setting text="Show Transparent Visuals" value="capsule-show-visual" apply-on-change="true" bind-value="true" hover-hint="Capsule and floor preview are only rendered while the Throw tab is open, so gameplay stays clean. Physics stays active either way."/>
+            <dropdown-list-setting text="Attach Mode" value="capsule-attach-mode" choices="capsule-attach-mode-options" apply-on-change="true" bind-value="true" hover-hint="Headset tracks your view (works with no avatar). Avatar Bone uses the path below; if the bone is never found it falls back to Headset. Platform Center sits at the platform middle."/>
+            <string-setting id="capsule-bone-path" text="Bone Path" value="capsule-bone-path" apply-on-change="true" bind-value="true" placeholder="e.g. Hips/Spine/Chest/Neck/Head" hover-hint="Hierarchy path ending in the bone name, matched case-insensitively as a suffix. Only used in Avatar Bone mode."/>
+            <slider-setting show-buttons="true" text="Height" min="0.2" max="4" increment="0.05" value="capsule-height" apply-on-change="true" bind-value="true"/>
+            <slider-setting show-buttons="true" text="Width" min="0.05" max="2" increment="0.05" value="capsule-width" apply-on-change="true" bind-value="true" hover-hint="Diameter of the capsule."/>
+              <slider-setting show-buttons="true" text="Vertical Offset" min="-3" max="3" increment="0.05" value="capsule-vertical-offset" apply-on-change="true" bind-value="true" hover-hint="Shifts the capsule up/down from its anchor."/>
+            </sr-scroll>
+          </vertical>
+        </tab>
+      </vertical>
+
+      <vertical id="page-emotes" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Works with 7TV, BetterTTV, FFZ and Twitch emotes." font-size="2.5" word-wrapping="true" color="#888"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="⚠ It seems to work but don't know how stable this is. Feel free to try it though ⚠" font-size="2.8" word-wrapping="true" color="#ffcc00" font-weight="Bold"/>
+          </horizontal>
+
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Emote Throw" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <toggle-setting text="Emote Throw Enabled" value="emote-throw-enabled" apply-on-change="true" hover-hint="Launch emote images as projectiles"/>
+          <slider-setting show-buttons="true" text="Emote Throw Size" min="0.1" max="2.0" increment="0.1" value="emote-throw-size" apply-on-change="true" bind-value="true" hover-hint="Scale of the thrown emote quad"/>
+
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Emote Rain" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <toggle-setting text="Emote Rain Enabled" value="emote-rain-enabled" apply-on-change="true" hover-hint="Drop emote images from above the player"/>
+          <slider-setting show-buttons="true" text="Emote Rain Size" min="0.1" max="2.0" increment="0.1" value="emote-rain-size" apply-on-change="true" bind-value="true" hover-hint="Scale of each raining emote"/>
+          <slider-setting show-buttons="true" text="Emote Rain Intensity" min="1" max="50" increment="1" value="emote-rain-intensity" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="How many emotes drop per chat message"/>
+          <toggle-setting text="Rain: Around Player" value="rain-zone-around-player" apply-on-change="true" hover-hint="Emotes spawn in a ring around your position."/>
+          <toggle-setting text="Rain: Front Center" value="rain-zone-front-center" apply-on-change="true" hover-hint="Emotes spawn in front of you, centered (world-anchored)."/>
+          <toggle-setting text="Rain: Front Left" value="rain-zone-front-left" apply-on-change="true" hover-hint="Emotes spawn in front of you, to your left (world-anchored)."/>
+          <toggle-setting text="Rain: Front Right" value="rain-zone-front-right" apply-on-change="true" hover-hint="Emotes spawn in front of you, to your right (world-anchored)."/>
+          <slider-setting show-buttons="true" text="Emote Rain Fall Speed" min="0.5" max="10" increment="0.5" value="emote-rain-fall-speed" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Emote Rain Despawn Time" min="1" max="30" increment="1" value="emote-rain-lifetime" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="Seconds before a rain emote disappears."/>
+          <toggle-setting text="Rain: Bounce Off Floor" value="emote-rain-bounce" apply-on-change="true" hover-hint="Rain emotes land on the platform floor and bounce instead of passing through it."/>
+          <toggle-setting text="Show Emitter Preview" value="emote-rain-preview" apply-on-change="true" hover-hint="Draws a marker at each enabled spawn zone so you can see where rain emotes appear."/>
+
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Memory" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <slider-setting show-buttons="true" text="Emote Cache Size (MB)" min="8" max="512" increment="8" 
+          value="emote-cache-mb" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="Max RAM (MB) used for decoded emote images. Older, unused emotes are freed past this; emotes currently on screen are always kept."/>
+          <toggle-setting text="Emoji Support" value="emoji-support-enabled" apply-on-change="true"/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-chat" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <bool-setting text="Chat Overlay Enabled" value="chat-enabled" apply-on-change="true" bind-value="true"/>
+          <horizontal bg="round-rect-panel" pad="2">
+            <text text="Requires a Twitch Channel in the General tab." font-size="2.8" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+          <slider-setting show-buttons="true" text="Panel Width" min="20" max="120" increment="1" value="chat-width" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Panel Height" min="20" max="160" increment="1" value="chat-height" apply-on-change="true" bind-value="true"/>
+          <slider-setting show-buttons="true" text="Font Size" min="1" max="10" increment="0.1" value="chat-font-size" apply-on-change="true" bind-value="true" hover-hint="Size of the chat text. Larger sizes show fewer lines in the same panel."/>
+          <button text="Reset Position" on-click="reset-chat-position" hover-hint="Move the chat panel back to its default spawn point."/>
+          <color-setting text="Username Color" value="chat-name-color" apply-on-change="true" bind-value="true" hover-hint="Fallback color for usernames that don't have their own Twitch chat color set."/>
+          <color-setting text="Message Text Color" value="chat-text-color" apply-on-change="true" bind-value="true" hover-hint="Color of the chat message text."/>
+          <bool-setting text="Force Username Color" value="chat-force-name-color" apply-on-change="true" bind-value="true" hover-hint="Ignore the color each viewer set on Twitch and always use the Username Color above for every username."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-about" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="~watermark-text" font-size="2.8" align="TopLeft"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="2">
+            <text text="~about-description" font-size="3" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="How effects play" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Bomb, Bits, Subs and Raid line up in a queue and take turns — each one starts after the one before it. Send as many as you like. If a Bomb is already going, new Bombs play right away with it." font-size="2.8" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="These play inside a song, because they attach to the notes. One sent from the menu starts on the next map." font-size="2.8" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Flashbang, Projection and Throw don't queue — they play the second they arrive, even in the menu." font-size="2.8" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+        </sr-scroll-tall>
+      </vertical>
+
+    </vertical>
+  </horizontal>
+
+  <!-- First-time disclaimer: shown once over the settings until acknowledged. -->
+  <modal show-event="show-disclaimer" hide-event="hide-disclaimer"
+         size-delta-x="90" size-delta-y="55" move-to-center="true"
+         clickerino-offerino-closerino="false">
+    <vertical pad="3" spacing="3" pref-width="84" child-control-width="true" child-control-height="false">
+      <horizontal pref-width="84">
+        <text text="Hey there!" font-size="6" align="Center" bold="true"/>
+      </horizontal>
+      <horizontal pref-width="84">
+        <text text="Unfortunately, this mod is entirely vibe-coded. That doesn't mean things are untested though. Just means that there might be horrors in the code I'm unaware of..." font-size="3.2" word-wrapping="true" align="TopLeft" color="#dddddd"/>
+      </horizontal>
+      <horizontal pref-width="84">
+        <text text="If you are ok with that, feel free to continue checking things out. Enjoy!" font-size="3.2" word-wrapping="true" align="TopLeft" color="#dddddd"/>
+      </horizontal>
+      <horizontal pref-width="84">
+        <text text="- FEFE" font-size="3.2" align="Left" color="#888888"/>
+      </horizontal>
+      <horizontal pref-width="84">
+        <button id="disclaimer-accept" text="I understand" on-click="accept-disclaimer" pref-width="40" pref-height="8"/>
+      </horizontal>
+    </vertical>
+  </modal>
+</vertical>

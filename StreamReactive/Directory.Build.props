@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <PluginId>StreamReactive</PluginId>
+    <PluginName>StreamReactive</PluginName>
+    <Authors>FEFELAND</Authors>
+    <Version>1.1.0</Version>
+    <GameVersion>1.40.8</GameVersion>
+    <Description>Reacts to Twitch events in Beat Saber</Description>
+    <BSMTProjectType>BSIPA</BSMTProjectType>
+    <GenerateManifest>true</GenerateManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <DependsOn Include="BSIPA" Version="^4.3.0" />
+  </ItemGroup>
+</Project>
