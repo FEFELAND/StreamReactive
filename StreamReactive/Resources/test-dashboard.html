@@ -36,8 +36,8 @@
   .field input, .field select { width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid #333; background: #0f3460; color: #eee; font-size: 0.9rem; }
   .field select { appearance: auto; }
   .field input:focus { outline: none; border-color: #7ec8e3; }
-  .field-row { display: flex; gap: 10px; }
-  .field-row .field { flex: 1; }
+.field-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.field-row .field { flex: 1; min-width: 180px; }
   .log { background: #0d1b2a; border-radius: 8px; padding: 12px; max-height: 180px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.8rem; }
   .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a2e; }
   .log-entry:last-child { border-bottom: none; }
@@ -77,8 +77,9 @@
     <button class="btn btn-gift" onclick="sendEvent('subscription_gift', 'Gifter', 5)">Gift 5</button>
     <button class="btn btn-raid" onclick="sendEvent('raid', 'Raider', 50)">Raid 50</button>
     <button class="btn" style="background: #ff6600;" onclick="sendEvent('bomb', 'You', 1)">Test Bomb</button>
-    <button class="btn btn-throw" onclick="sendEvent('throw', 'Cube', 1)">Throw Cube</button>
-    <button class="btn btn-throw" onclick="sendEvent('throw', 'Volley', 5)">Throw 5 Cubes</button>
+    <button class="btn" style="background: #ff6600;" onclick="sendEvent('bomb', 'You', 1, 'This is a test message')">Bomb + Message</button>
+    <button class="btn btn-throw" onclick="sendEvent('throw', '', 1)">Throw Cube</button>
+    <button class="btn btn-throw" onclick="sendEvent('throw', '', 5)">Throw 5</button>
     <button class="btn" style="background: #ffffff; color: #000;" onclick="sendFlashbang()">Flashbang</button>
     <button class="btn" style="background: #7b1fa2; color: #fff;" onclick="sendProj('star')">Star</button>
     <button class="btn" style="background: #e65100; color: #fff;" onclick="sendProj('nuke')">Nuke</button>
@@ -91,42 +92,21 @@
 
 <div class="card">
   <h2>Custom Event</h2>
-  <div class="field-row">
-    <div class="field">
-      <label>Type</label>
-      <select id="customType">
-        <option value="bits">Bits / Cheer</option>
-        <option value="subscription">Subscription</option>
-        <option value="subscription_gift">Gift Sub</option>
-        <option value="raid">Raid</option>
-        <option value="bomb">Bomb</option>
-        <option value="throw">Throw Cube (amount = count)</option>
-        <option value="flashbang">Flashbang</option>
-        <option value="projection">Projection</option>
-        <option value="cubeanimation">Lurk (Cube Animation)</option>
-      </select>
-    </div>
-    <div class="field">
-      <label>User</label>
-      <input id="customUser" value="TestUser" placeholder="Username">
-    </div>
-    <div class="field">
-      <label>Amount</label>
-      <input id="customAmount" type="number" value="100">
-    </div>
-  </div>
   <div class="field">
-    <label>Message</label>
-    <input id="customMessage" value="" placeholder="Optional chat message">
+    <label>Type</label>
+    <select id="customType">
+      <option value="bits">Bits / Cheer</option>
+      <option value="subscription">Subscription</option>
+      <option value="subscription_gift">Gift Sub</option>
+      <option value="raid">Raid</option>
+      <option value="bomb">Bomb</option>
+      <option value="throw">Throw Projectiles</option>
+      <option value="flashbang">Flashbang</option>
+      <option value="projection">Projection</option>
+      <option value="cubeanimation">Lurk (Cube Animation)</option>
+    </select>
   </div>
-  <div class="field">
-    <label>Color (hex, optional)</label>
-    <input id="customColor" value="" placeholder="e.g. #FF0000">
-  </div>
-  <div class="field" id="projNameRow" style="display:none;">
-    <label>Projection Name</label>
-    <input id="customProjName" value="star" placeholder="star, nuke, pulse, spiral, or OBJ filename">
-  </div>
+  <div id="customFields" class="field-row"></div>
   <button class="btn btn-custom" onclick="sendCustomEvent()">Send Custom Event</button>
 </div>
 
@@ -168,58 +148,173 @@ function sendEvent(type, user, amount, message, color) {
   }
   lastSend = now;
 
-  var payload = {
-    type: type,
-    data: {
-      user: user,
-      amount: amount,
-      message: message || '',
-      color: color || ''
-    }
-  };
+  var data = {};
+  if (user) data.user = user;
+  if (amount || amount === 0) data.amount = amount;
+  if (message) data.message = message;
+  if (color) data.color = color;
+
+  var payload = { type: type, data: data };
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
-    log(type + ' - ' + user + ' (' + amount + ')', 'ok');
+    log(type + ' - ' + (user || '') + (amount ? ' (' + amount + ')' : ''), 'ok');
   } else {
     log('Not connected', 'err');
   }
 }
 
-function sendCustomEvent() {
-  var type = document.getElementById('customType').value.trim();
-  var user = document.getElementById('customUser').value.trim() || 'TestUser';
-  var amount = parseInt(document.getElementById('customAmount').value) || 0;
-  var message = document.getElementById('customMessage').value.trim();
-  var color = document.getElementById('customColor').value.trim();
-  if (!type) { log('Type is required', 'err'); return; }
-
-  if (type === 'projection') {
-    var name = document.getElementById('customProjName').value.trim() || 'star';
-    var payload = { type: 'projection', data: { name: name } };
-    if (color) payload.data.color = color;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
-      log('projection: ' + name + (color ? ' (' + color + ')' : ''), 'ok');
-    } else { log('Not connected', 'err'); }
-    return;
+// Per-type field definitions — matches the Message Generator. Each event only
+// shows the variables that event actually accepts.
+const CUSTOM_EVENTS = {
+  bits: {
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, value: 'TestUser' },
+      { key: 'amount', label: 'Bits amount', required: true, num: true, value: '100' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional — otherwise tier colors apply' }
+    ]
+  },
+  subscription: {
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, value: 'TestUser' },
+      { key: 'amount', label: 'Months subscribed', required: false, num: true, value: '1' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional' }
+    ]
+  },
+  subscription_gift: {
+    fields: [
+      { key: 'user', label: 'Gifter username', required: true, num: false, value: 'TestUser' },
+      { key: 'amount', label: 'Subs gifted', required: true, num: true, value: '5' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional' }
+    ]
+  },
+  raid: {
+    fields: [
+      { key: 'user', label: 'Raid leader', required: true, num: false, value: 'TestUser' },
+      { key: 'amount', label: 'Viewers', required: true, num: true, value: '50' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional' }
+    ]
+  },
+  bomb: {
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, value: 'TestUser' },
+      { key: 'amount', label: 'Notes to explode', required: false, num: true, value: '1' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional' },
+      { key: 'message', label: 'Message', required: false, num: false, value: '', hint: 'optional — floats above the bombs' }
+    ]
+  },
+  throw: {
+    fields: [
+      { key: 'amount', label: 'Projectiles', required: false, num: true, value: '1' },
+      { key: 'scale', label: 'Note Scale', required: false, num: true, value: '', hint: 'override in-game scale, e.g. 1.5' },
+      { key: 'spawn', label: 'Spawn Point', required: false, options: ['Twin Cannons', 'Random Around', 'Front Center', 'Horizon Front'], value: '' },
+      { key: 'arc', label: 'Arc / Flight Time (sec)', required: false, num: true, value: '', hint: 'override in-game air time' }
+    ]
+  },
+  flashbang: {
+    control: true,
+    note: 'White-out flash in the headset only. No fields needed.'
+  },
+  projection: {
+    fields: [
+      { key: 'name', label: 'Projection name', required: false, num: false, value: 'star', hint: 'star, nuke, pulse, spiral, or an OBJ filename' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional' },
+      { key: 'duration', label: 'Duration (seconds)', required: false, num: true, value: '', hint: 'override in-game default' },
+      { key: 'size', label: 'Size (meters)', required: false, num: true, value: '', hint: 'override in-game default' },
+      { key: 'positionX', label: 'Position X', required: false, num: true, value: '', hint: 'world offset (default 0)' },
+      { key: 'positionY', label: 'Position Y', required: false, num: true, value: '', hint: 'world offset (default 1.5 above floor)' },
+      { key: 'positionZ', label: 'Position Z / Distance', required: false, num: true, value: '', hint: 'in front of player (default 10)' },
+      { key: 'rotationX', label: 'Rotation X (deg)', required: false, num: true, value: '' },
+      { key: 'rotationY', label: 'Rotation Y (deg)', required: false, num: true, value: '' },
+      { key: 'rotationZ', label: 'Rotation Z (deg)', required: false, num: true, value: '' }
+    ]
+  },
+  cubeanimation: {
+    fields: [
+      { key: 'user', label: 'Username', required: true, num: false, value: 'TestUser' },
+      { key: 'scale', label: 'Note Scale', required: false, num: true, value: '', hint: 'override in-game Note Scale, e.g. 0.6' }
+    ]
   }
+};
 
-  if (type === 'cubeanimation' || type === 'lurk') {
-    var payload = { type: type, data: { user: user } };
-    if (message) payload.data.action = message.trim();
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(payload));
-      log(type + ': ' + user + (message ? ' (' + message + ')' : ''), 'ok');
-    } else { log('Not connected', 'err'); }
-    return;
+function renderCustomFields() {
+  var type = document.getElementById('customType').value;
+  var ev = CUSTOM_EVENTS[type] || { fields: [] };
+  var container = document.getElementById('customFields');
+  container.innerHTML = '';
+  if (ev.note) {
+    var p = document.createElement('p');
+    p.style.color = '#888';
+    p.style.fontSize = '0.85rem';
+    p.style.width = '100%';
+    p.textContent = ev.note;
+    container.appendChild(p);
   }
-
-  sendEvent(type, user, amount, message, color);
+  (ev.fields || []).forEach(function(f) {
+    var div = document.createElement('div');
+    div.className = 'field';
+    var labelHtml = '<label>' + f.label + (f.required ? ' <span style="color:#ef5350;font-size:0.7rem;">required</span>' : '') + '</label>';
+    if (f.options) {
+      var opts = [''].concat(f.options);
+      var rows = opts.map(function(o) {
+        var text = o === '' ? '(default)' : o;
+        return '<option value="' + o + '">' + text + '</option>';
+      }).join('');
+      div.innerHTML = labelHtml + '<select data-key="' + f.key + '">' + rows + '</select>';
+    } else {
+      var inputType = f.num ? 'number' : 'text';
+      div.innerHTML = labelHtml +
+        '<input data-key="' + f.key + '" type="' + inputType + '" value="' + (f.value || '') + '"' +
+        (f.hint ? ' placeholder="' + f.hint.replace(/"/g, '&quot;') + '"' : '') + '>';
+    }
+    container.appendChild(div);
+  });
 }
 
-document.getElementById('customType').addEventListener('change', function() {
-  document.getElementById('projNameRow').style.display = this.value === 'projection' ? '' : 'none';
-});
+function customValues() {
+  var vals = {};
+  document.querySelectorAll('#customFields input, #customFields select').forEach(function(inp) {
+    vals[inp.dataset.key] = inp.value.trim();
+  });
+  return vals;
+}
+
+function customPayload() {
+  var type = document.getElementById('customType').value;
+  var ev = CUSTOM_EVENTS[type] || { fields: [] };
+  if (ev.control) return { type: type, data: null, missing: [] };
+  var vals = customValues();
+  var data = {};
+  var missing = [];
+  (ev.fields || []).forEach(function(f) {
+    var v = vals[f.key];
+    if (v === '') {
+      if (f.required) missing.push(f.label);
+      return;
+    }
+    if (f.num && isFinite(v)) data[f.key] = Number(v);
+    else data[f.key] = v;
+  });
+  return { type: type, data: data, missing: missing };
+}
+
+function sendCustomEvent() {
+  var payload = customPayload();
+  if (payload.missing.length) {
+    log('Missing required: ' + payload.missing.join(', ') + ' — omitted from payload', 'ok');
+  }
+  var msg = payload.data === null
+    ? { type: payload.type }
+    : { type: payload.type, data: payload.data };
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+    log(payload.type + ' sent', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+document.getElementById('customType').addEventListener('change', renderCustomFields);
+renderCustomFields();
 
 function sendStopAll() {
   if (ws && ws.readyState === WebSocket.OPEN) {

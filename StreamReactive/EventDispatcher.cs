@@ -67,6 +67,17 @@ internal static class EventDispatcher
             return;
         }
 
+        // Global kill switch: while disabled only the pure control messages above
+        // (stop_all/socket/pause/unpause) still act. Every actual effect — the
+        // transient one-shots below AND the queued note events — is ignored, so
+        // disabling via the settings toggle or "socket on:false" makes the mod
+        // truly inert. The WebSocket stays open so it can always be re-enabled.
+        if (cfg?.Enabled == false)
+        {
+            Plugin.Log.Debug($"Disabled: ignoring {type}.");
+            return;
+        }
+
         // While paused — or on a protected map (Noodle/Vivify/WIP) treated as
         // paused — only transient one-shot effects are skipped: they have no queue,
         // so there is nowhere to hold them. Note event types (bomb/bits/sub/raid)
@@ -241,7 +252,7 @@ internal static class EventDispatcher
         Plugin.DispatchStreamEvent(type, user, amount, color, message);
     }
 
-    private static void ClearAllEffects()
+    internal static void ClearAllEffects()
     {
         NoteCosmeticController.ClearQueues();
         ParticleSpawner.StopAll();

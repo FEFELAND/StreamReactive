@@ -12,26 +12,37 @@ A Beat Saber mod that reacts to stream events (Twitch bits, subs, raids, and a c
 ```
 StreamReactive.sln
 StreamReactive/
-  Plugin.cs                    — BSIPA entry point, BSEvents, Harmony init, DispatchStreamEvent, bit-tier helpers
-  PluginConfig.cs              — Config store (IPA auto-persisted)
-  WebSocketServer.cs           — HttpServer (websocket-sharp) serving /stream WebSocket + test dashboard over HTTP
-  EventDispatcher.cs           — Parses incoming JSON events, resolves colors, handles control commands
-  ParticleSpawner.cs           — Unity ParticleSystem manager with pooling, custom textures + mask
-  SoundManager.cs               — Lazy OGG loading + playback for event / bonk sounds (Session cache)
-  NoteCosmeticController.cs    — Note cut tracking, bomb cosmetics, sub/raid sustain windows, text, Harmony patches
-   RuntimeHooks.cs              — Singleton MonoBehaviour coroutine runner + LateUpdate event processing
-   CapsuleGuardController.cs    — Guard capsule (headset/bone/platform anchor), preview visual, aim point
-   ProjectileThrower.cs         — Manual-kinematic bouncing projectiles (throw event), trajectory modes
-   MainConfigMenu.cs            — MenuButton + FlowCoordinator for settings entry
-  StreamReactiveSettingsViewController.cs — BSML settings UI bindings
-  ColorConverter.cs            — Config store converter for Unity Color values
-  Resources/Settings.bsml      — BSML markup for the settings page
-  Resources/test-dashboard.html — Web dashboard for sending test events
-  Resources/generator.html     — Message generator for test payloads
-  REFERENCE_NOTES.md           — This file
-  StreamReactive.csproj        — Project targeting net472
-  StreamReactive.csproj.user   — Beat Saber install path (local-only, NOT committed)
-  ext/_latest.log              — Latest runtime log (local-only, NOT committed)
+  Plugin.cs                            — BSIPA entry point, BSEvents, Harmony init, DispatchStreamEvent, bit-tier helpers
+  PluginConfig.cs                      — Config store (IPA auto-persisted)
+  Directory.Build.props                — Assembly/branding metadata; Version + the InformationalVersion suffix suppression
+  WebSocketServer.cs                   — HttpServer (websocket-sharp) serving /stream WebSocket + test dashboard over HTTP
+  EventDispatcher.cs                   — Parses incoming JSON events, resolves colors, handles control commands + the global Enabled gate
+  ParticleSpawner.cs                   — Unity ParticleSystem manager with pooling, custom textures + mask
+  SoundManager.cs                      — Lazy OGG loading + playback for event / bonk sounds (Session cache)
+  NoteCosmeticController.cs            — Note cut tracking, bomb cosmetics, sub/raid sustain windows, text, Harmony patches
+  RuntimeHooks.cs                      — Singleton MonoBehaviour coroutine runner + LateUpdate event processing
+  CapsuleGuardController.cs            — Guard capsule (headset/bone/platform anchor), preview visual, aim point
+  ProjectileThrower.cs                 — Manual-kinematic bouncing projectiles (throw event), trajectory modes
+  ComboThrowController.cs              — Auto-throws a block when the note combo breaks at/above the configured threshold
+  FlashbangController.cs               — Full-screen white flash + viewer-facing overlay text
+  ProjectionController.cs              — OBJ-file / preset particle projections (star, spiral, ...)
+  CubeAnimationController.cs           — One-shot floating "Lurk" cube animation with name tag
+  TwitchChatReader.cs                  — Anonymous `justinfan` IRC client feeding the chat panel + emote detection
+  ChatPanelController.cs               — Custom in-game Twitch chat overlay panel
+  EmoteCache.cs                        — Twitch/BTTV/FFZ/7TV emote catalog + GIF/APNG decode (SixLabors.ImageSharp)
+  EmoteHud.cs                          — SpriteRenderer emote visuals (ImageFactory material) + emote throw/rain HUD
+  EmoteRainPreview.cs                  — Settings-page preview markers for enabled rain zones
+  MainConfigMenu.cs                    — MenuButton + FlowCoordinator for settings entry
+  ScrollContainerTag.cs                — Custom `sr-scroll` BSML tag (plain ScrollRect, RectMask2D viewport)
+  StreamReactiveSettingsViewController.cs — BSML settings UI bindings + GitHub update check banner
+  ColorConverter.cs                    — Config store converter for Unity Color values
+  Resources/Settings.bsml              — BSML markup for the settings page
+  Resources/test-dashboard.html        — Web dashboard for sending test events
+  Resources/generator.html             — Message generator for test payloads
+  REFERENCE_NOTES.md                   — This file
+  StreamReactive.csproj                — Project targeting net472
+  StreamReactive.csproj.user           — Beat Saber install path (local-only, NOT committed)
+  ext/_latest.log                      — Latest runtime log (local-only, NOT committed)
 ```
 
 ## Event Format
@@ -59,6 +70,7 @@ Event types:
 - `raid` / `host` — raid sustain effect (shows viewer count)
 - `stop_all` — control: stops all active particle/event processing immediately (also clears thrown cubes)
 - `socket` — control: turns the whole plugin on/off, identical to the General "Enabled" switch. `data.on` / `data.enabled` / `data.value` (or root `on`) = boolean; if absent it toggles from the current state.
+- **Global kill switch (`Enabled`)** — while `cfg.Enabled == false` ONLY the pure control messages above (`stop_all`/`socket`/`pause`/`unpause`) still act. Every effect type is ignored, including the transient one-shots (flashbang/projection/throw/lurk) — the gate sits just after the controls, before any effect handling (`EventDispatcher`), and note events are not queued either. Disabling also clears currently-playing effects (both in `EventDispatcher` on `socket on:false`, and from the settings toggle's setter). The WebSocket server stays up so it can be re-enabled remotely. **The chat panel and emote system (Twitch channel-driven) are deliberately independent of `Enabled`/`Paused`** — they keep running as long as a channel is configured.
 - `pause` / `unpause` (alias `resume`) — control: pause keeps the mod *enabled* and accepting events, but nothing plays until unpause. Note event types (bomb/bits/sub/raid) are held in the `NoteCosmeticController.ProcessPendingStreamEvents` queue and start on unpause; **flashbang is held and replayed on unpause** (`TryDrainHeldFlashbangs`); projection/throw/lurk have no queue and are ignored while paused. Mirrors the General "Paused" switch (config `Paused`).
 - `skip` / `skip_current` — control: skips the current event's sustain window
  - `throw` / `throw_cube` / `cube` — control: throws projectiles at the guard capsule; they bounce off it. Works in the menu too (not gated by gameplay). `amount` = count (1–10, max 12 concurrent). Optional per-throw overrides in `data`: `scale`/`size` (multiplier), `spawn`/`origin` (spawn-point mode), `arc`/`time`/`airTime` (flight time in seconds).
@@ -76,6 +88,15 @@ Field notes:
 - `amount` drives particle/note counts (and bit tier selection for `bits`).
 - `message` is only displayed for `bomb` events; it is read but ignored for other types.
 - `color` (hex) is only honored for unrecognized/other types. `bits`, `subscription`, `raid`, and `bomb` colors are overridden by the configured colors/tier system.
+
+## Chat Panel & Twitch Integration
+
+- The Twitch connection is fully **anonymous read-only**: `TwitchChatReader.Connect` opens TLS to `irc.chat.twitch.tv:6697` with a generated `justinfan<random>` NICK and **no PASS line at all** (`TwitchChatReader.cs:61-66`) — nothing to authenticate, nothing to leak into the build.
+- The reader runs on a background thread and forwards every PRIVMSG onto the main thread via `RuntimeHooks.EnqueueChatMessage` → `ChatPanelController.AddMessage` (chat overlay) and `Plugin.HandleEmoteDetected` (emote effects), where each is guarded by its own toggles.
+- **Chat overlay** (`ChatPanelController`): a customizable in-game panel — name/text colors, force-name-color, badges, max messages, auto-scroll — fed by the same IRC stream. Off when `ChatEnabled` is off.
+- **Emote catalog** (`EmoteCache`): resolves codes from Twitch, BTTV, FFZ and 7TV. GIF/APNG frames are decoded **off the main thread** with SixLabors.ImageSharp (a loose `Libs` dll — see the ImageSharp runtime note at the bottom). Effects consume codes as **emote rain** or **emote-throw projectiles**.
+- **Emote rendering** (`EmoteHud`): `SpriteRenderer`s on the default layer using ImageFactory's `_Sprite` material (sprite assetbundle redistributed in our DLL, MIT — see `ThirdPartyNotices.md`) — the one configuration confirmed bloom-free in the headset AND the desktop mirror (see the External Mod References section for the HSV dead-end).
+- Chat/emotes ignore `Enabled`/`Paused`, but the **map-protection gate still suppresses emote spawns** (`Plugin.cs`), and the catalog only downloads when a Twitch channel is configured.
 
 ## Sounds
 
@@ -106,12 +127,21 @@ Field notes:
 - `<scroll-view>` clones HMUI's `TextPageScrollView` template (from EulaDisplayViewController) whose sizing fights layout groups — it killed the whole menu when tried inside the dynamic pages host. **Working alternative**: a custom BSML tag (`ScrollContainerTag.cs`, alias `sr-scroll`) that hand-builds a plain Unity `ScrollRect` (viewport with raycastable ImageView + `RectMask2D` clip, top-anchored ContentSizeFitter content, draggable auto-hiding scrollbar, wheel-driven). Pattern proven by AccSaber Reloaded's `  My2DScrollableContainer` (GPL-3.0) — credited above in the UI / Settings Menu section. **Must be registered lazily** (we do it right before presenting settings) — `BSMLParser.Instance` throws "Tried getting BSMLParser too early!" during `OnApplicationStart`.
  - The Throw page uses two sub-tabs: "Projectile" (launch pattern, trajectory mode w/ conditional rows, floor size, bounciness, friction) and "Capsule" (enable, visuals toggle, attach mode, bone path, dimensions).
 
+### GitHub Update Check
+
+- The General tab banner (`~update-status-text`) checks `https://api.github.com/repos/FEFELAND/StreamReactive/releases/latest` — anonymous `UnityWebRequest`, 10 s timeout, User-Agent `StreamReactive` — and compares the latest release tag against the running assembly version.
+- Runs on every settings `DidActivate`, throttled to once per 10 minutes per session; always degrades to a neutral message, never throws or blocks the UI. The C# coroutine respects the old-runtime `yield`-outside-`try/catch` rule.
+- Because the repo is currently **private**, GitHub answers the anonymous releases API with **HTTP 404**, which is indistinguishable from "no release yet" — both render the gray "No GitHub release yet - nothing to update". Making the repo public and tagging a release flips this to "Update available: <tag>".
+- Tag parsing (`ParseVersionTag`) tolerates `v1.1.0` / `1.1.0` / `1.1.0-beta1`. For the banner to show "Update available", the tag must be **newer than the DLL version** in `Directory.Build.props`; a tag equal to it shows "Up to date: 1.1.0".
+
 ## Build & Deploy
 
 ```powershell
 # Build (auto-copies DLL to game Plugins folder)
 dotnet build StreamReactive/StreamReactive.csproj
 ```
+
+- Assembly/product version lives in `Directory.Build.props` (`Version`, currently 1.1.0). `IncludeSourceRevisionInInformationalVersion=false` keeps the built informational/product version clean (no `+hash` suffix), so the DLL's version matches plain tags like `v1.1.0`.
 
 **WARNING**: `TreatWarningsAsErrors=true` in csproj — nullable warnings are build-fatal.
 
@@ -128,7 +158,7 @@ dotnet build StreamReactive/StreamReactive.csproj
 - Bounces split velocity into normal + tangential components and damp each separately; **Bounciness (Capsule)** slider governs capsule-bounce energy (0 = dead stop, with extra velocity kill), while **Bounciness (Floor)** governs floor bounces and **Floor Friction** alone governs sliding (floor contact deliberately applies NO tangential damping, otherwise friction has no visible effect). Capsule bounces add a small random tilt to the reflection normal (`CapsuleBounceScatter` ≈ 7°) so volleys fan out instead of piling up in the same landing spot. The floor is a **finite platform-sized square pinned to the world origin (XZ and height, surface at y=0)** — cubes past the edge keep falling and despawn below kill depth. The green floor preview quad matches these bounds exactly.
 - Bomb text: username line is `\n<size=70%>user</size>` by default, but if the message ends with a rich-text tag (`>`), the plugin skips its own wrapper so author styling like trailing `<size=0>` reaches the username. BombTextLineSpacing config applies TMP `lineSpacing` (-30..100) for tightening lines inflated by emoji/fallback fonts.
 - Projectile lifecycle is config-driven: **ThrowLifetime** (1–120 s, default 14) then a **Despawn Fade** shrink-out (ThrowFadeSeconds 0–3 s, 0 = instant pop; dying projectiles spin gently and ease-in shrink to zero scale, freeing the spawn slot immediately). Finished projectiles are **pooled, not destroyed** (dictionary keyed by visual kind `-Cube`/`-NoteA`/`-NoteB` name suffix, max 4 per key): re-instantiating full note clones every throw hitched VR, so despawned ones are deactivated and recycled; `Initialize` resets physics + restores scale (originals captured on first use). **ThrowMaxProjectiles** slider (1–200, default 12) gates spawns. A user rejected an earlier procedural note fallback (primitives-built rounded box + chevron) as ugly — orange cube stays the no-prefab fallback. Note clones inherit whatever cosmetics (bit trails etc.) ride the source note at clone time — user LIKES that ("funny"), so cloning never strips them; `StripAttachedEffects` runs only in `Retire` to release stuck effects at despawn. Two related bugs fixed after a bad session: (1) `CreateVisual` only clones real note visuals once `_liveBlockMpbs[colorIndex]` exists — earlier it cached a reset/black and/or dot-variant live `NoteCube` mid-map before per-side captures landed, and pooling kept that broken look all session; menu throws stay orange cubes until a map's notes get captured. (2) `ResolveGameType` now requires types assignable from `UnityEngine.Object` — another assembly ships an unrelated `ColorManager`, which made `Resources.FindObjectsOfTypeAll` throw and disabled player-color capture for the fallback path.
-- **Rank Protection (ranked-map pausing) is implemented** as a 4th Map Protection toggle ("Pause on Ranked Maps", off by default) alongside Noodle/Vivify/WIP. It blocks events while the playing map is ranked on BeatLeader, ScoreSaber, OR both (single toggle — no per-leaderboard split). Detection runs in the same once-per-map `RefreshCurrentMapInfo()` that feeds Noodle/Vivify/WIP and only needs BS_Utils' `beatmapKey.levelId` + the SongDetailsCache mod (so it works even when SongCore is absent). The hash is stripped from `custom_level_<hash>` (also handling the trailing ` WIP` suffix) and looked up via `SongDetails.songs.FindByHash`; the map is "ranked" when `rankedStates.HasFlag(ScoresaberRanked) || HasFlag(BeatleaderRanked)`. SongDetailsCache is detected by assembly scan at startup (`SongDetailsLoaded`, same pattern as `SongCoreLoaded`), its `SongDetails.Init()` DB load is kicked off once, fire-and-forget, off the main thread, and every lookup is best-effort with per-map debug logging (hash found? states flags? DB not ready yet?) — the post-mortem lesson from the old attempt was to instrument FIRST. No compile-time dependency beyond the `SongDetailsCache.dll` reference in the csproj; without it the toggle simply never gates.
+- **Rank Protection (ranked-map pausing) is implemented** as a 4th Map Protection toggle ("Pause on Ranked Maps", off by default) alongside Noodle/Vivify/WIP (defaults: **WIP ON**, Noodle/Vivify/Ranked OFF — see `PluginConfig`). It blocks events while the playing map is ranked on BeatLeader, ScoreSaber, OR both (single toggle — no per-leaderboard split). Detection runs in the same once-per-map `RefreshCurrentMapInfo()` that feeds Noodle/Vivify/WIP and only needs BS_Utils' `beatmapKey.levelId` + the SongDetailsCache mod (so it works even when SongCore is absent). The hash is stripped from `custom_level_<hash>` (also handling the trailing ` WIP` suffix) and looked up via `SongDetails.songs.FindByHash`; the map is "ranked" when `rankedStates.HasFlag(ScoresaberRanked) || HasFlag(BeatleaderRanked)`. SongDetailsCache is detected by assembly scan at startup (`SongDetailsLoaded`, same pattern as `SongCoreLoaded`), its `SongDetails.Init()` DB load is kicked off once, fire-and-forget, off the main thread, and every lookup is best-effort with per-map debug logging (hash found? states flags? DB not ready yet?) — the post-mortem lesson from the old attempt was to instrument FIRST. No compile-time dependency beyond the `SongDetailsCache.dll` reference in the csproj; without it the toggle simply never gates.
   - **History**: rank protection was originally attempted and then REMOVED at the user's request after two failed test rounds. The old blockers no longer apply: BS_Utils' `GameplayCoreSceneSetupData` instance accessor works for reading `beatmapKey.levelId` (that's how the whole protection system gets the current map), and the old "SDC Init never reported ready" mystery is handled by explicit `_songDetails != null` readiness checks + per-map logging instead of assuming readiness.
   - **Map-protection timing / `_mapInfoPending`**: `Plugin._inGame` flips true the instant the game scene loads, but the per-map protection flags (`_mapIsWip`/`_mapHasNoodle`/`_mapHasVivify`/`_mapIsRanked`) aren't computed until `RefreshCurrentMapInfo()` runs — deferred by up to 6 frames in the `RefreshCurrentMapInfoDelayed` coroutine (waiting on BS_Utils to populate `beatmapKey.levelId`). In that window protection read as inactive, so events queued while in the menu (bits/bomb/sub/raid) started playing on the new map even when it was protected — at least the first one. Fix: `_mapInfoPending` is set true in `OnGameSceneLoaded`, `IsMapProtectionActive()` returns true while it's set (treating the not-yet-known map as protected), and `RefreshCurrentMapInfo()` clears it the moment it obtains a non-empty levelId (all flags are computed synchronously on the main thread right after, so events can never observe a half-resolved state). `OnMenuSceneLoaded` also clears it as a safety net.
 - **CRASH LESSON — never clone modded note visuals:** a Vivify map replaced `colorNotes` with custom AssetBundle prefabs (`AssignTrackPrefab`, load mode `Single`); the prefab scan cached the live `NormalGameNote(Clone)/NoteCube` (4592 verts vs ~550 stock), threw cloned it, and when Vivify's bundle/components went away the pooled clone's dangling GPU references took the graphics device down (`Graphics device is null`, hard crash). Protections added: pristine `N0`–`N3` **asset templates** now beat any live `(Clone)` candidate by +10 preference so Vivify-swapped notes are never cloned; `ProjectileThrower.OnSceneChanged()` (wired to both scene-loaded hooks) drains the pool and drops `_noteVisualPrefab` ONLY when it was a live-clone source (asset templates are core objects, kept across scenes). Captured per-side MPBs are deliberately NOT wiped on scene changes — they're plain property bags copied from stock game notes (verified: `block 'NoteHD'` even inside Vivify maps), so persisting them lets menu throws replay the last map's exact look; wiping them forced the raw-color fallback in menu, and the `Custom/NoteHD` shader ignores the fallback color props (only `_SimpleColor` exists and writing it leaves the block black while arrow materials recolor fine). Clone path wrapped in try/catch → orange cube fallback. The capture-gate for cloning applies ONLY to live-clone sources (`_prefabIsAssetTemplate` set by an explicit per-candidate `isTemplate` flag — NOT by score thresholds): asset templates clone freely so menu throws keep working before/without any map's material captures. **Modded-visual restoration (user request):** while `Plugin.IsInGame` AND at least one side has captured MPBs, live clones get +20 pref so Vivify-swapped custom note models win the scan and get thrown (this was empirically safe once the pool drain existed — the single historical crash session also had the broken ColorManager path, so blame-sharing between clone-instantiation and that bug was never settled); a one-shot `_moddedRescanDone` upgrade rescan in `EnsureNotePrefab` switches template→clone mid-map after captures land, since first throws always precede captures. On scene exit the clone source is dropped and menu rescans pick templates again. Template detection GOTCHAS that each cost a debugging round: (1) prefab assets live in no scene, ALL their objects are inactive-in-hierarchy, so `GetComponentsInChildren<MeshRenderer>(false)` scores them 0 verts — include inactive renderers; (2) in this game version the N0–N3 MeshFilter-root loop never matches, templates actually come through the NoteController loop as e.g. `NormalGameNote/NoteCube` (no `(Clone)` suffix), so template-ness must be derived from the candidate's own origin (`name.EndsWith("(Clone)")`), never from preference score — and non-clone sources get +10 pref so vert-count tiebreaks can't hand the win to a modded 4592-vert clone again.

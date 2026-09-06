@@ -28,6 +28,9 @@
 
       <vertical id="page-general" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
         <sr-scroll-tall>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="~update-status-text" font-size="2.8" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
           <bool-setting text="Enabled" value="enabled" apply-on-change="true" bind-value="true" hover-hint="Enable or disable all StreamReactive effects"/>
           <bool-setting text="Paused" value="paused" apply-on-change="true" bind-value="true" hover-hint="Hold event playback: new events are still accepted and queued, but nothing plays until this is turned off."/>
           <bool-setting text="Include Bomb Notes" value="include-bomb-notes" apply-on-change="true" bind-value="true" hover-hint="Include bomb notes in particle/text effects"/>

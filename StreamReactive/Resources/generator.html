@@ -74,11 +74,6 @@
 
 <div class="card">
   <h2>3. Output</h2>
-  <div class="field" style="max-width:240px;">
-    <label>Streamer.bot WebSocket endpoint ID</label>
-    <input id="endpointId" type="text" value="3" placeholder="3 or %websocketSlot%">
-    <div class="hint">A number, or a placeholder like %websocketSlot% to set it with an argument.</div>
-  </div>
   <div class="tabs">
     <button class="tab-btn active" data-tab="message" onclick="showTab('message')">WebSocket Message</button>
     <button class="tab-btn" data-tab="code" onclick="showTab('code')">Streamer.bot Code</button>
@@ -88,6 +83,11 @@
     <pre id="outMessage"></pre>
   </div>
   <div class="tab-panel" data-tab="code">
+    <div class="field" style="max-width:240px;">
+      <label>Streamer.bot WebSocket endpoint ID</label>
+      <input id="endpointId" type="text" value="3" placeholder="3 or %websocketSlot%">
+      <div class="hint">A number, or a placeholder like %websocketSlot% to set it with an argument.</div>
+    </div>
     <button class="copy-btn" onclick="copyActive()">Copy</button>
     <pre id="outCode"></pre>
   </div>
@@ -242,7 +242,10 @@ function buildFields() {
     }
 
     div.innerHTML =
-      '<label>' + f.label + (f.required ? '<span class="req" title="Required">*</span>' : '') + ' <span style="color:#555;">(optional)</span></label>' +
+      '<label>' + f.label +
+      (f.required
+        ? '<span class="req" title="Required">* required</span>'
+        : ' <span style="color:#555;">(optional)</span>') + '</label>' +
       inputHtml +
       '<div class="hint">' + f.hint.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
     container.appendChild(div);

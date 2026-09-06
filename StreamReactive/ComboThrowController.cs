@@ -61,7 +61,7 @@ internal static class ComboThrowController
         _combo = 0;
 
         var cfg = PluginConfig.Instance;
-        if (cfg == null || !cfg.ComboThrowEnabled || !Plugin.IsInGame)
+        if (cfg == null || !cfg.ComboThrowEnabled || !cfg.Enabled || !Plugin.IsInGame)
             return;
 
         // Protected map (Noodle/Vivify/WIP): suppress the auto-throw like all other

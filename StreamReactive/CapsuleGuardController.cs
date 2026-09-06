@@ -74,7 +74,7 @@ internal sealed class CapsuleGuardController : MonoBehaviour
     {
         var cfg = PluginConfig.Instance;
 
-        if (cfg == null || !cfg.CapsuleGuardEnabled)
+        if (cfg == null || !cfg.CapsuleGuardEnabled || !cfg.Enabled)
         {
             SetCapsuleActive(false);
             SetFloorVisualActive(false);

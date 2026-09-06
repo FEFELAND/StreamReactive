@@ -30,6 +30,16 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
     private bool _syncedEnabled = true;
     private bool _syncedPaused;
 
+    // GitHub update banner (top of the General page). Checked in the background
+    // on the main thread via a coroutine: fire-and-forget, best-effort, and
+    // unable to throw out of the method - any failure just leaves a neutral
+    // "couldn't check" message.
+    private const string UpdateCheckUrl = "https://api.github.com/repos/FEFELAND/StreamReactive/releases/latest";
+    private static readonly TimeSpan UpdateCheckInterval = TimeSpan.FromMinutes(10);
+    private string _updateStatus = "";
+    private bool _updateCheckInProgress;
+    private DateTime _lastUpdateCheckUtc;
+
     private PluginConfig Config => PluginConfig.Instance!;
 
     [UIObject("page-general")]
@@ -166,6 +176,15 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
         UpdateConditionalVisibility();
         RefreshSoundDropdowns();
 
+        // Check for a newer GitHub release whenever the settings open, but never
+        // more often than every 10 minutes per session. Best-effort: hitting the
+        // net before the repo is public / has a release just yields a neutral line.
+        if (!_updateCheckInProgress
+            && DateTime.UtcNow - _lastUpdateCheckUtc > UpdateCheckInterval)
+        {
+            StartCoroutine(CheckForUpdatesCoroutine());
+        }
+
         // #post-parse only fires once per view instance (creating this settings
         // view). Re-entering the settings reuses the cached view, so the disclaimer
         // wouldn't re-show after backing out without acknowledging. Firing here on
@@ -203,6 +222,90 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
         if (Config != null)
             Config.ClickedDisclaimer = true;
         _parserParams?.EmitEvent("hide-disclaimer");
+    }
+
+    [UIValue("update-status-text")]
+    public string UpdateStatusText => _updateStatus;
+
+    /// <summary>
+    /// Fetches the latest GitHub release tag (async, main-thread safe via
+    /// UnityWebRequest) and compares it to the running assembly version. Always
+    /// degrades to a neutral message - it must never throw or block the UI, and
+    /// it still works even while the repo is private (GitHub answers 404 for the
+    /// anonymous releases API, which we treat as "no public release yet").
+    /// </summary>
+    private System.Collections.IEnumerator CheckForUpdatesCoroutine()
+    {
+        _updateCheckInProgress = true;
+
+        // Unity's IL2CPP / Mono runtime forbids yield inside try+catch, so we
+        // yield the request outside of any error handling block.
+        using (var req = UnityEngine.Networking.UnityWebRequest.Get(UpdateCheckUrl))
+        {
+            req.SetRequestHeader("User-Agent", "StreamReactive");
+            req.timeout = 10;
+            yield return req.SendWebRequest();
+            _lastUpdateCheckUtc = DateTime.UtcNow;
+
+            try
+            {
+                if (req.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                {
+                    var root = Newtonsoft.Json.Linq.JObject.Parse(req.downloadHandler.text);
+                    var tag = root["tag_name"]?.ToString() ?? "";
+                    var latest = ParseVersionTag(tag);
+                    var current = CurrentAssemblyVersion;
+                    if (latest != null && current != null)
+                    {
+                        _updateStatus = latest > current
+                            ? "<color=#fbbf24>Update available: " + tag + "</color>"
+                            : "<color=#4ade80>Up to date: " + FormatVersion(current) + "</color>";
+                    }
+                    else
+                    {
+                        _updateStatus = "<color=#9ca3af>Couldn't read update info</color>";
+                    }
+                }
+                else if (req.responseCode == 404)
+                {
+                    // Private repo or no release published yet.
+                    _updateStatus = "<color=#9ca3af>No GitHub release yet - nothing to update</color>";
+                }
+                else
+                {
+                    _updateStatus = "<color=#9ca3af>Couldn't check for updates</color>";
+                }
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log.Warn($"Update check: {ex.Message}");
+                _updateStatus = "<color=#9ca3af>Couldn't check for updates</color>";
+            }
+        }
+
+        _updateCheckInProgress = false;
+        NotifyPropertyChanged(nameof(UpdateStatusText));
+    }
+
+    private static readonly Version? CurrentAssemblyVersion =
+        typeof(StreamReactiveSettingsViewController).Assembly.GetName().Version;
+
+    private static string FormatVersion(Version v) => $"{v.Major}.{v.Minor}.{v.Build}";
+
+    /// <summary>
+    /// Parses "v1.2.0", "1.2.0", "1.2.0-beta1", etc. into a comparable Version.
+    /// Returns null when the tag has no usable version so callers degrade quietly.
+    /// </summary>
+    private static Version? ParseVersionTag(string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return null;
+        var s = tag.Trim();
+        var start = 0;
+        while (start < s.Length && !char.IsDigit(s[start])) start++;
+        s = s.Substring(start);
+        var dash = s.IndexOf('-');
+        if (dash >= 0) s = s.Substring(0, dash);
+        return Version.TryParse(s, out var v) ? v : null;
     }
 
     /// <summary>
@@ -612,6 +715,11 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
         {
             if (Config != null) Config.Enabled = value;
             _syncedEnabled = value;
+            // Match the socket "on:false" control: clearing effects immediately
+            // kills anything already playing. Emotes/chat are a separate system
+            // driven by their own toggles, so they are left untouched here.
+            if (!value)
+                EventDispatcher.ClearAllEffects();
         }
     }
 
