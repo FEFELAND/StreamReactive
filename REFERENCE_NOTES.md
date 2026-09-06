@@ -87,7 +87,7 @@ Field notes:
 - `user` is required for the floating text display.
 - `amount` drives particle/note counts (and bit tier selection for `bits`).
 - `message` is only displayed for `bomb` events; it is read but ignored for other types.
-- `color` (hex) is only honored for unrecognized/other types. `bits`, `subscription`, `raid`, and `bomb` colors are overridden by the configured colors/tier system.
+- `color` (hex) — an explicit payload color is honored for **every** event type (websocket args always win). Without one: `bomb` uses `BombColorMode`, `bits` uses the tier color for the amount, `subscription`/`raid` use their configured color, and unrecognized/other types use the default. `message` overrides go the same way.
 
 ## Chat Panel & Twitch Integration
 

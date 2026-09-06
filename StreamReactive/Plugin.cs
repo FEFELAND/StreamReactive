@@ -787,12 +787,18 @@ public class Plugin
         if (!isBomb)
             color = color ?? Color.white;
 
+        // Configured colors are the defaults for bits/sub/raid, but an explicit
+        // color sent with the event still wins so triggers can override on the
+        // fly (e.g. a channel-point color picker). Only a null payload color
+        // falls back to the configured/tier color.
         if (string.Equals(type, "bits", StringComparison.OrdinalIgnoreCase))
-            color = GetBitTierColor(amount);
+            color = color ?? GetBitTierColor(amount);
         else if (isSub)
-            color = cfg.SubParticleColor;
+            color = color ?? cfg.SubParticleColor;
         else if (isRaid)
-            color = cfg.RaidParticleColor;
+            color = color ?? cfg.RaidParticleColor;
+        else
+            color = color ?? cfg.BitsColor;
 
         Log.Debug($"Stream event: type={type}, user={user}, amount={amount}, color={color}");
 

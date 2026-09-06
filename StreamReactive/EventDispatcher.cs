@@ -243,11 +243,11 @@ internal static class EventDispatcher
         var message = data["message"]?.Value<string>() ??
                       data["chatMessage"]?.Value<string>() ?? string.Empty;
 
-        Color color;
+        // Only an explicit payload color is forwarded - otherwise null, so
+        // DispatchStreamEvent applies the configured/tier color per event type.
+        Color? color = null;
         if (!string.IsNullOrEmpty(rawColor) && TryParseHex(rawColor, out var parsedColor))
             color = parsedColor;
-        else
-            color = GetDefaultColorForType(type);
 
         Plugin.DispatchStreamEvent(type, user, amount, color, message);
     }
@@ -289,14 +289,6 @@ internal static class EventDispatcher
         return string.Equals(type, "projection", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "project", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "proj", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static Color GetDefaultColorForType(string type)
-    {
-        var cfg = PluginConfig.Instance;
-        if (cfg == null) return Color.white;
-
-        return cfg.BitsColor;
     }
 
     private static float? GetNullableFloat(JToken data, params string[] keys)
