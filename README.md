@@ -23,12 +23,12 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - `Projection` - Sort of experimental feature I'm not sure how take advantage of yet. But it allows you to load any .obj file you want as particles. And some preset animations.
 - `CubeAnimation` - Silly addition, currently only has a cube floating to the platform, lurking for a few seconds and going away. Along with a name tag.
 - Management events:
- - `Enable` - Enables the mod.
- - `Disable` - Shuts down the mod basically. No reactions to anything, nothing queues up (Chat and Emotes are independent from this toggle).
- - `Pause` - Similar to disable. Stops the mod from reacting to events, but does track/queue _most_ events that queue up.
- - `Unpause` - Makes the mod listen again, and play any events that may be in queue.
- - `stop_all` - Stops and clears all currently running/queued StreamReactive events.
- - `skip` - Skips the currently playing event and makes the next one in queue start.
+  - `Enable` - Enables the mod.
+  - `Disable` - Shuts down the mod basically. No reactions to anything, nothing queues up (Chat and Emotes are independent from this toggle).
+  - `Pause` - Similar to disable. Stops the mod from reacting to events, but does track/queue _most_ events that queue up.
+  - `Unpause` - Makes the mod listen again, and play any events that may be in queue.
+  - `stop_all` - Stops and clears all currently running/queued StreamReactive events.
+  - `skip` - Skips the currently playing event and makes the next one in queue start.
 - Map protection system. Automatically pause events based on:
   - Noodle maps
   - Vivify maps
