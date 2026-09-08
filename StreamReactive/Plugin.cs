@@ -836,9 +836,13 @@ public class Plugin
             string text = string.Empty;
             int textNoteCount = 0;
             {
+                // Optional: strip rich-text modifiers so viewers can't style text.
+                var viewMessage = cfg.BombTextStripTags
+                    ? NoteCosmeticController.StripRichTextTags(message)
+                    : message;
                 // Word limit applies to the viewer's message only, before the
                 // username is appended, so the name line is never truncated.
-                var clampedMessage = NoteCosmeticController.ClampMessageWords(message, cfg.MaxMessageWords);
+                var clampedMessage = NoteCosmeticController.ClampMessageWords(viewMessage, cfg.MaxMessageWords);
                 // If the message ends with a rich-text tag, the author controls
                 // styling themselves (e.g. a trailing <size=0> to hide the
                 // username) - don't wrap the name in our own size tag then.

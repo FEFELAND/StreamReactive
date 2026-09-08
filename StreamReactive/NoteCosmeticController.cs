@@ -1321,6 +1321,40 @@ internal static class NoteCosmeticController
     }
 
     /// <summary>
+    /// Removes Unity rich-text tags (e.g. &lt;size&gt;, &lt;color&gt;, &lt;b&gt;)
+    /// from viewer message text so viewers can't style bomb text. Nested and
+    /// malformed tags are handled by scanning for balanced angle brackets.
+    /// </summary>
+    internal static string StripRichTextTags(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        var sb = new System.Text.StringBuilder(text.Length);
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (c == '<')
+            {
+                int close = text.IndexOf('>', i + 1);
+                if (close > i)
+                {
+                    var inner = text.Substring(i + 1, close - i - 1);
+                    if (!inner.Contains('<'))
+                    {
+                        // Looks like a tag: consume it.
+                        i = close;
+                        continue;
+                    }
+                    // Otherwise '<' is literal text - fall through and append.
+                }
+            }
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Truncates viewer message text to at most <paramref name="maxWords"/>
     /// words (0 = no limit). A "word" is a whitespace-separated run of non-
     /// whitespace characters; rich-text tags count as zero width and stick to
@@ -1768,7 +1802,7 @@ internal static class NoteCosmeticController
         if (note == null || note is BombNoteController)
             return;
 
-        Plugin.Log.Debug($"ApplyBombVisual: Starting for note {note.GetInstanceID()}, name={note.name}");
+        VerboseLog($"ApplyBombVisual: Starting for note {note.GetInstanceID()}, name={note.name}");
 
         EnsureGlowMaterial();
 
@@ -1820,7 +1854,8 @@ internal static class NoteCosmeticController
             noteCubeRenderer.sharedMaterial = _glowMaterial;
             var instanceMat = noteCubeRenderer.material; // creates instance (required for bloom)
             // Boost color into HDR range for strong bloom (alpha=1 matches backup that worked)
-            float brightness = 3.0f;
+            var glowBrightness = Mathf.Max(0f, PluginConfig.Instance?.BombGlowBrightness ?? 3f);
+            float brightness = glowBrightness;
             var hdrColor = new Color(color.r * brightness, color.g * brightness, color.b * brightness, 1f);
             instanceMat.color = hdrColor;
             instanceMat.name = "BombGlow (instance)";
@@ -1829,7 +1864,7 @@ internal static class NoteCosmeticController
             noteCubeRenderer.GetPropertyBlock(mpb);
             mpb.SetColor(_colorPropertyId, hdrColor);
             noteCubeRenderer.SetPropertyBlock(mpb);
-            Plugin.Log.Debug($"  Applied glow material, hdrColor=({hdrColor.r:F2},{hdrColor.g:F2},{hdrColor.b:F2})");
+            VerboseLog($"  Applied glow material, hdrColor=({hdrColor.r:F2},{hdrColor.g:F2},{hdrColor.b:F2})");
 
             if (rainbow)
                 RuntimeHooks.RunCoroutine(AnimateRainbowBombNote(note, noteCubeRenderer, instanceMat, mpb, GetRainbowSpeed()));
@@ -1866,10 +1901,10 @@ internal static class NoteCosmeticController
         }
         if (disabledList.Count > 0)
         {
-            Plugin.Log.Debug($"ApplyBombVisual: disabled {disabledList.Count} extra child renderer(s) (outline etc.)");
+            VerboseLog($"ApplyBombVisual: disabled {disabledList.Count} extra child renderer(s) (outline etc.)");
         }
 
-        Plugin.Log.Debug($"ApplyBombVisual: Mesh+bomb, material=Custom/Glowing, mesh={_bombMeshCache.name}");
+        VerboseLog($"ApplyBombVisual: Mesh+bomb, material=Custom/Glowing, mesh={_bombMeshCache.name}");
     }
 
     private static System.Collections.IEnumerator AnimateRainbowBombNote(NoteController note, MeshRenderer renderer, Material instanceMat, MaterialPropertyBlock mpb, float speed)
@@ -1877,7 +1912,8 @@ internal static class NoteCosmeticController
         while (note != null && _bombedNotes.Contains(note))
         {
             var c = RainbowColor(speed);
-            var hdr = new Color(c.r * 3f, c.g * 3f, c.b * 3f, 1f);
+            var glowBrightness = Mathf.Max(0f, PluginConfig.Instance?.BombGlowBrightness ?? 3f);
+            var hdr = new Color(c.r * glowBrightness, c.g * glowBrightness, c.b * glowBrightness, 1f);
             instanceMat.SetColor(_colorPropertyId, hdr);
             mpb.SetColor(_colorPropertyId, hdr);
             renderer.SetPropertyBlock(mpb);

@@ -61,6 +61,9 @@ public class PluginConfig
     public virtual bool BombCosmeticEnabled { get; set; } = true;
     public virtual float BombTextSize { get; set; } = 12f;
     public virtual float BombTextLifetime { get; set; } = 3f;
+    // When enabled, strips rich-text modifiers (<color>, <size>, <br>, etc.)
+    // out of viewer bomb messages so viewers can't control text styling.
+    public virtual bool BombTextStripTags { get; set; } = false;
     public virtual int BombParticleCount { get; set; } = 10000;
     public virtual float BombParticleScale { get; set; } = 0.015f;
     public virtual float BombParticleLifetime { get; set; } = 1.5f;
@@ -70,6 +73,9 @@ public class PluginConfig
     public virtual float BombRainbowSpeed { get; set; } = 0.7f;
     [UseConverter(typeof(ColorConverter))]
     public virtual Color BombParticleColor { get; set; } = new Color(1f, 0.5f, 0f, 1f);
+    // HDR brightness multiplier for the bomb glow. Boosts color into HDR range
+    // so higher values bloom more. 0 dims the bomb to invisible-level flatness.
+    public virtual float BombGlowBrightness { get; set; } = 3f;
 
     // Bits global
     public virtual bool TextSpawnEveryEvent { get; set; } = true;

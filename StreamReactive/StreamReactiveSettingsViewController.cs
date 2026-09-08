@@ -773,6 +773,13 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
         set { if (Config != null) Config.BombTextLifetime = value; }
     }
 
+    [UIValue("bomb-text-strip-tags")]
+    public bool BombTextStripTags
+    {
+        get => Config?.BombTextStripTags ?? false;
+        set { if (Config != null) Config.BombTextStripTags = value; }
+    }
+
     [UIValue("bomb-color-mode-options")]
     public List<object> BombColorModeOptions { get; } = new() { "Static", "Random", "Rainbow" };
 
@@ -802,6 +809,13 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
     {
         get => Config?.BombParticleColor ?? new Color(1f, 0.5f, 0f, 1f);
         set { if (Config != null) Config.BombParticleColor = value; }
+    }
+
+    [UIValue("bomb-glow-brightness")]
+    public float BombGlowBrightness
+    {
+        get => Config?.BombGlowBrightness ?? 3f;
+        set { if (Config != null) Config.BombGlowBrightness = Mathf.Clamp(value, 0f, 5f); }
     }
 
     [UIValue("bomb-particle-count")]

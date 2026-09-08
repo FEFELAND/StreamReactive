@@ -1,3 +1,7 @@
+# 1.1.2
+- Bombs: Added "Strip Message Tags" toggle. (makes things like `<color=#ffffff>` `<size=40>` not work)
+- Bombs: Added "Glow Brightness" slider.
+
 # 1.1.1
 - Added settings for note particle outlines (the outline effect for gift subs and raids)
 - Added a basic chat window

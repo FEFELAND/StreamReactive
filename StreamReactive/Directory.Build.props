@@ -4,7 +4,7 @@
     <PluginId>StreamReactive</PluginId>
     <PluginName>StreamReactive</PluginName>
     <Authors>FEFELAND</Authors>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <GameVersion>1.40.8</GameVersion>
     <Description>Reacts to Twitch events in Beat Saber</Description>
