@@ -120,6 +120,14 @@ internal static class NoteCosmeticController
     private static readonly HashSet<NoteController> _bombedNotes = new();
     private static readonly HashSet<NoteController> _cutBombNotes = new();
     private static readonly Dictionary<NoteController, List<GameObject>> _disabledByBomb = new();
+    // The exact MeshRenderer bombed for a note. RestoreNoteVisuals needs the
+    // SAME renderer that ApplyBombVisual swapped (keyed by its instance id in
+    // _originalNoteMeshes/_originalNoteMaterials), but FindNoteBlockTransform
+    // re-derives a candidate at restore time and scores differently once the
+    // note carries the low-vert Bomb mesh - so it can pick a different child
+    // (e.g. NoteArrow) whose id is never in the originals dicts. That silently
+    // skips the restore and leaves the note stuck looking like a bomb forever.
+    private static readonly Dictionary<NoteController, MeshRenderer> _bombedRenderersByNote = new();
     private static readonly Dictionary<NoteController, GameObject> _activeOutlineParticles = new();
     private static readonly Dictionary<NoteController, GameObject> _activeSubTrails = new();
     private static readonly List<GameObject> _activeSubDisplays = new();
@@ -304,6 +312,7 @@ internal static class NoteCosmeticController
         RestoreAllDisabledByBomb();
         _bombedNotes.Clear();
         _cutBombNotes.Clear();
+        _bombedRenderersByNote.Clear();
         _sustainOwner = null;
         _subSustainEndTime = 0f;
         _subSustainConfig = default;
@@ -314,6 +323,10 @@ internal static class NoteCosmeticController
         _subSustainRemaining = 0f;
         _originalNoteMeshes.Clear();
         _originalNoteMaterials.Clear();
+        _originalNoteRendererEnabled.Clear();
+        _originalNoteProperties.Clear();
+        _bombMeshCache = null;
+        _bombMaterialCache = null;
         _cachedEnergyPanel = null;
         DestroyAllOutlineParticles();
         DestroyAllSubTrails();
@@ -337,8 +350,16 @@ internal static class NoteCosmeticController
         RestoreAllDisabledByBomb();
         _bombedNotes.Clear();
         _cutBombNotes.Clear();
+        _bombedRenderersByNote.Clear();
         _originalNoteMeshes.Clear();
         _originalNoteMaterials.Clear();
+        _originalNoteRendererEnabled.Clear();
+        _originalNoteProperties.Clear();
+        // Bomb mesh/material can reference the previous scene's AssetBundles
+        // (e.g. Vivify), so re-cache them per scene instead of holding a dead
+        // reference. The glow material is safe core content and stays.
+        _bombMeshCache = null;
+        _bombMaterialCache = null;
         _cachedEnergyPanel = null;
 
         lock (_eventQueue)
@@ -1570,10 +1591,32 @@ internal static class NoteCosmeticController
 
     private static Material? _glowMaterial;
     private static Mesh? _bombMeshCache;
+    // The actual material a real game bomb renders with (usually a custom
+    // glowing material textured so stock bombs always show). Preferred over the
+    // bare Custom/Glowing fallback, which has no texture and can render as a
+    // barely-visible bloom shell - the "invisible bomb" on modded maps.
+    private static Material? _bombMaterialCache;
     private static Mesh? _roundedCubeMesh;
     private static readonly int _colorPropertyId = Shader.PropertyToID("_Color");
     private static readonly Dictionary<int, Mesh?> _originalNoteMeshes = new();
     private static readonly Dictionary<int, Material?> _originalNoteMaterials = new();
+    // Original Renderer.enabled for the bomb body. Vivify (and similar) can
+    // render the note body with the renderer disabled and the GameObject left
+    // active, so the bomb swap would land on an invisible renderer; we force it
+    // on and restore it on unwind.
+    private static readonly Dictionary<int, bool> _originalNoteRendererEnabled = new();
+    // Original per-renderer property block (color MPB). The bomb apply writes an
+    // HDR _Color override into the block renderer's property block; without
+    // restoring this block the note keeps glowing in the bomb color after it is
+    // un-bombed ("a random note changed color after a missed bomb").
+    private static readonly Dictionary<int, MaterialPropertyBlock> _originalNoteProperties = new();
+    // Renderer components disabled (instead of their GameObjects) because they
+    // are ANCESTORS of the bomb body: SetActive(false) on an ancestor would make
+    // the bomb body itself inactive in the hierarchy (CellNote/Vivify nest their
+    // parts under the note cube), hiding the bomb entirely. Keys are the
+    // Renderer instances, values the original enabled state.
+    private static readonly Dictionary<UnityEngine.Renderer, bool> _ancestorRendererEnabledByBomb = new();
+    private const int ActiveBlockBonus = 10000;
 
     /// <summary>
     /// Finds the note's main block renderer flexibly. Stock notes still use
@@ -1592,8 +1635,11 @@ internal static class NoteCosmeticController
     {
         if (root == null) return null;
 
-        var stock = root.Find("NoteCube");
-        if (stock != null) return stock;
+        // Scene-attached (real spawned note or thrown clone) hierarchies obey
+        // activeInHierarchy; asset templates aren't part of any scene and every
+        // child reports inactive, so they must stay eligible regardless.
+        var scene = root.gameObject.scene;
+        var inLiveScene = scene.IsValid() && scene.isLoaded;
 
         Transform? best = null;
         var bestScore = int.MinValue;
@@ -1604,10 +1650,36 @@ internal static class NoteCosmeticController
             var mf = r.GetComponent<MeshFilter>();
             if (mf?.sharedMesh == null || r.sharedMaterial == null) continue;
 
+            // A renderer that is NOT active - or whose renderer component is
+            // disabled - in a live hierarchy is invisible, even though its
+            // GameObject may be active (Vivify toggles the visible body via
+            // Renderer.enabled). Picking it (as the bomb target, say) would
+            // produce nothing on screen. Skip it outright; only scene-attached
+            // checks matter.
+            if (inLiveScene && (!r.gameObject.activeInHierarchy || !r.enabled))
+                continue;
+
             var name = r.gameObject.name;
             var score = ScoreNoteBlockCandidate(name);
             var verts = mf.sharedMesh.vertexCount;
             score += Mathf.Min(verts / 8, 250);
+
+            // A renderer that is actually active in a live hierarchy is far more
+            // likely to be the visible block than a stock "NoteCube" a mod has
+            // deactivated while parenting its own model (Vivify).
+            if (r.gameObject.activeSelf || r.gameObject.activeInHierarchy)
+                score += ActiveBlockBonus;
+
+            // The biggest active renderer is the likeliest block body: modded
+            // notes (Vivify) parent a large custom model that name heuristics
+            // rank poorly (or that carries an unhelpful name) next to small
+            // helper meshes labeled "Arrow"/"Glow". Bounds volume outranks
+            // those name penalties, so the bomb reliably lands on the visible
+            // body instead of the arrow.
+            var bounds = r.bounds;
+            var boundsDiag = bounds.size.x * bounds.size.x
+                + bounds.size.y * bounds.size.y + bounds.size.z * bounds.size.z;
+            score += Mathf.Min((int)(boundsDiag * 1000f), 1000);
 
             if (score > bestScore || (score == bestScore && verts > bestVerts))
             {
@@ -1615,6 +1687,13 @@ internal static class NoteCosmeticController
                 bestVerts = verts;
                 best = r.transform;
             }
+        }
+
+        if (best != null)
+        {
+            VerboseLog(
+                $"FindPreferredNoteBlockTransform: root='{root.name}' picked '{best.name}' " +
+                $"(score {bestScore}, verts {bestVerts}, activeInHierarchy={best.gameObject.activeInHierarchy}).");
         }
 
         return best;
@@ -1643,6 +1722,11 @@ internal static class NoteCosmeticController
         if (Has(name, "Bomb")) score -= 1000;
 
         return score;
+    }
+
+    internal static bool IsNoteBombed(NoteController note)
+    {
+        return note != null && _bombedNotes.Contains(note);
     }
 
     internal static (MeshRenderer? renderer, MeshFilter? filter, Transform transform)? FindNoteBlock(NoteController note)
@@ -1783,6 +1867,12 @@ internal static class NoteCosmeticController
             if (mf != null && mf.sharedMesh != null)
             {
                 _bombMeshCache = mf.sharedMesh;
+                var r = mf.GetComponent<Renderer>();
+                if (r == null) r = mf.GetComponentInParent<Renderer>();
+                if (r != null && r.sharedMaterial != null && _bombMaterialCache == null)
+                    _bombMaterialCache = r.sharedMaterial;
+                Plugin.Log.Info($"EnsureBombMeshCache: cached bomb mesh '{mf.sharedMesh.name}' and material " +
+                    $"'{_bombMaterialCache?.name ?? "<?>"}' from '{bomb.name}'.");
                 break;
             }
         }
@@ -1828,6 +1918,11 @@ internal static class NoteCosmeticController
             return;
         }
 
+        VerboseLog(
+            $"ApplyBombVisual: selected block '{noteCubeTransform.name}' " +
+            $"activeInHierarchy={noteCubeTransform.gameObject.activeInHierarchy}, " +
+            $"mat='{noteCubeTransform.GetComponent<MeshRenderer>()?.sharedMaterial?.name}'.");
+
         var noteCubeRenderer = noteCubeTransform.GetComponent<MeshRenderer>();
         var noteCubeMeshFilter = noteCubeTransform.GetComponent<MeshFilter>();
         if (noteCubeRenderer == null || noteCubeMeshFilter == null)
@@ -1837,6 +1932,10 @@ internal static class NoteCosmeticController
         }
 
         int rendererId = noteCubeRenderer.GetInstanceID();
+        // Track the exact renderer we bombed so RestoreNoteVisuals restores THIS
+        // renderer, not a re-derived candidate (which can differ once the note
+        // carries the Bomb mesh).
+        _bombedRenderersByNote[note] = noteCubeRenderer;
         // Only store originals on the first bomb-visual application. Subsequent
         // calls must not overwrite them, otherwise RestoreNoteVisuals would
         // restore the bomb mesh/material instead of the real note originals.
@@ -1844,27 +1943,61 @@ internal static class NoteCosmeticController
             _originalNoteMeshes[rendererId] = noteCubeMeshFilter.sharedMesh;
         if (!_originalNoteMaterials.ContainsKey(rendererId))
             _originalNoteMaterials[rendererId] = noteCubeRenderer.sharedMaterial;
+        if (!_originalNoteRendererEnabled.ContainsKey(rendererId))
+            _originalNoteRendererEnabled[rendererId] = noteCubeRenderer.enabled;
+
+        // Swap material: the glowy HDR bloom shell is what makes a StreamReactive
+        // bomb read as a bomb (matches the stable release). The cached real-bomb
+        // material is only a fallback in case the glow material is unavailable -
+        // its texture draws arrows on the shell, which the user explicitly dislikes.
+        var baseMat = _glowMaterial ?? _bombMaterialCache;
+        if (baseMat == null)
+        {
+            Plugin.Log.Warn("ApplyBombVisual: No bomb material available");
+            return;
+        }
 
         // Swap mesh to bomb
         noteCubeMeshFilter.sharedMesh = _bombMeshCache;
 
+        // The block renderer may have been disabled while its note visuals were
+        // shown by another renderer (Vivify). Force it on so the bomb body we
+        // just swapped in actually draws.
+        if (!noteCubeRenderer.enabled)
+            noteCubeRenderer.enabled = true;
+
         // Swap material to glow material (instance for per-note color)
         try
         {
-            noteCubeRenderer.sharedMaterial = _glowMaterial;
+            noteCubeRenderer.sharedMaterial = baseMat;
             var instanceMat = noteCubeRenderer.material; // creates instance (required for bloom)
             // Boost color into HDR range for strong bloom (alpha=1 matches backup that worked)
             var glowBrightness = Mathf.Max(0f, PluginConfig.Instance?.BombGlowBrightness ?? 3f);
             float brightness = glowBrightness;
             var hdrColor = new Color(color.r * brightness, color.g * brightness, color.b * brightness, 1f);
             instanceMat.color = hdrColor;
+            // Custom/Glowing-family shaders may read a glow-tint property instead
+            // of _Color; poke the common ones so the shell isn't pitch black.
+            foreach (var propName in new[] { "_GlowColor", "_SimpleGlowColor", "_TintColor", "_Color" })
+            {
+                if (instanceMat.HasProperty(propName))
+                    instanceMat.SetColor(propName, hdrColor);
+            }
             instanceMat.name = "BombGlow (instance)";
-            // Override color in MPB so note's original color doesn't fight us
+            // Override color in MPB so note's original color doesn't fight us.
+            // Capture the pre-bomb block first so RestoreNoteVisuals can put it
+            // back - otherwise the note keeps the HDR bomb color after restore.
             var mpb = new MaterialPropertyBlock();
             noteCubeRenderer.GetPropertyBlock(mpb);
+            if (!_originalNoteProperties.ContainsKey(rendererId))
+            {
+                var origMpb = new MaterialPropertyBlock();
+                noteCubeRenderer.GetPropertyBlock(origMpb);
+                _originalNoteProperties[rendererId] = origMpb;
+            }
             mpb.SetColor(_colorPropertyId, hdrColor);
             noteCubeRenderer.SetPropertyBlock(mpb);
-            VerboseLog($"  Applied glow material, hdrColor=({hdrColor.r:F2},{hdrColor.g:F2},{hdrColor.b:F2})");
+            VerboseLog($"  Applied bomb material '{baseMat.name}' (shader {baseMat.shader?.name ?? "?"}), hdrColor=({hdrColor.r:F2},{hdrColor.g:F2},{hdrColor.b:F2})");
 
             if (rainbow)
                 RuntimeHooks.RunCoroutine(AnimateRainbowBombNote(note, noteCubeRenderer, instanceMat, mpb, GetRainbowSpeed()));
@@ -1872,7 +2005,7 @@ internal static class NoteCosmeticController
         catch (Exception ex)
         {
             Plugin.Log.Warn($"  Could not instance glow material: {ex.Message}");
-            noteCubeRenderer.sharedMaterial = _glowMaterial;
+            noteCubeRenderer.sharedMaterial = baseMat;
         }
 
         // Hide arrows
@@ -1883,28 +2016,70 @@ internal static class NoteCosmeticController
         var circleGlow = noteCubeTransform.Find("NoteCircleGlow");
         if (circleGlow != null) circleGlow.gameObject.SetActive(false);
 
-        // Disable any other child renderers (NoteTweaks outline, etc.)
+        // Disable every other active renderer so nothing but the bomb body stays
+        // visible. Any mesh the note still shows competes with the bomb look
+        // (e.g. a Vivify arrow that was swapped to the block's bomb material,
+        // or a stock outline), so the safe rule is: hide all other active
+        // Renderer components (Mesh AND Skinned) except the bomb target's own
+        // GameObject.
         if (!_disabledByBomb.TryGetValue(note, out var disabledList))
         {
             disabledList = new List<GameObject>();
             _disabledByBomb[note] = disabledList;
         }
-        foreach (var childRenderer in note.GetComponentsInChildren<MeshRenderer>(true))
+        foreach (var childRenderer in note.GetComponentsInChildren<Renderer>(true))
         {
             if (childRenderer == null) continue;
             if (childRenderer.gameObject == noteCubeTransform.gameObject) continue;
-            if (childRenderer.gameObject.activeSelf)
+            if (!childRenderer.gameObject.activeSelf) continue;
+            // Never disable an ANCESTOR of the bomb body via SetActive: the
+            // bomb body is a child of the note cube (CellNote/Vivify nest their
+            // parts underneath it), so turning off the ancestor GameObject would
+            // make the bomb body inactive in the hierarchy and invisible. For
+            // ancestors just disable the Renderer component - the note parts the
+            // ancestor would draw are hidden, while the subtree (and thus the
+            // bomb body placed inside it) stays active.
+            if (noteCubeTransform.IsChildOf(childRenderer.transform))
             {
-                childRenderer.gameObject.SetActive(false);
-                disabledList.Add(childRenderer.gameObject);
+                if (!_ancestorRendererEnabledByBomb.ContainsKey(childRenderer))
+                {
+                    _ancestorRendererEnabledByBomb[childRenderer] = childRenderer.enabled;
+                    childRenderer.enabled = false;
+                }
+                continue;
             }
+            childRenderer.gameObject.SetActive(false);
+            disabledList.Add(childRenderer.gameObject);
         }
         if (disabledList.Count > 0)
         {
-            VerboseLog($"ApplyBombVisual: disabled {disabledList.Count} extra child renderer(s) (outline etc.)");
+            VerboseLog($"ApplyBombVisual: disabled {disabledList.Count} extra child renderer(s)");
         }
 
-        VerboseLog($"ApplyBombVisual: Mesh+bomb, material=Custom/Glowing, mesh={_bombMeshCache.name}");
+        // After hiding, the ONLY renderers still ACTUALLY DRAWING should be the
+        // bomb body itself. Count enabled renderers on active GameObjects (a GO
+        // whose renderer.enabled was turned off - e.g. a NoteCube ancestor - has
+        // its GO still active and was previously misreported as visible).
+        var stillActive = new System.Collections.Generic.List<string>();
+        foreach (var cr in note.GetComponentsInChildren<Renderer>(true))
+        {
+            if (cr == null || cr.gameObject == noteCubeTransform.gameObject)
+                continue;
+            if (cr.gameObject.activeInHierarchy && cr.enabled)
+                stillActive.Add(cr.gameObject.name);
+        }
+        VerboseLog(
+            $"ApplyBombVisual: bomb body='{noteCubeTransform.name}' " +
+            $"activeInHierarchy={noteCubeTransform.gameObject.activeInHierarchy} " +
+            $"still-visible renderers={stillActive.Count}: {string.Join(",", stillActive.ToArray())}");
+        if (!noteCubeTransform.gameObject.activeInHierarchy)
+        {
+            Plugin.Log.Warn("ApplyBombVisual: bomb body is NOT active in hierarchy - bomb will be invisible!");
+        }
+
+        VerboseLog($"ApplyBombVisual: Mesh+bomb, mesh={_bombMeshCache.name} verts={_bombMeshCache.vertexCount}, " +
+            $"material={(_glowMaterial ?? _bombMaterialCache)?.name ?? "?"} shader={(_glowMaterial ?? _bombMaterialCache)?.shader?.name ?? "?"}, " +
+            $"enabled={noteCubeRenderer.enabled}");
     }
 
     private static System.Collections.IEnumerator AnimateRainbowBombNote(NoteController note, MeshRenderer renderer, Material instanceMat, MaterialPropertyBlock mpb, float speed)
@@ -1943,36 +2118,39 @@ internal static class NoteCosmeticController
             }
         }
         _disabledByBomb.Clear();
+
+        // Re-enable any ancestor renderers we disabled instead of their
+        // GameObjects (bomb body subtrees are left active - only their own
+        // note-body renderer was turned off so the bomb could show).
+        foreach (var kvp in _ancestorRendererEnabledByBomb)
+        {
+            if (kvp.Key != null) kvp.Key.enabled = kvp.Value;
+        }
+        _ancestorRendererEnabledByBomb.Clear();
     }
 
     internal static void RestoreNoteVisuals(NoteController note)
     {
         if (note == null) return;
 
-        var noteCubeTransform = FindNoteBlockTransform(note);
-        if (noteCubeTransform != null)
+        // Restore the EXACT renderer we bombed. Re-deriving it with
+        // FindNoteBlockTransform is unsafe: while the note still shows the Bomb
+        // mesh its scoring changes, so it can return a different child whose
+        // instance id is not in the originals dicts - which silently skips the
+        // restore and leaves the note stuck looking like a bomb ("keeps
+        // respawning/stuck to notes" on reuse).
+        if (_bombedRenderersByNote.TryGetValue(note, out var noteCubeRenderer) && noteCubeRenderer != null)
         {
-            var arrow = noteCubeTransform.Find("NoteArrow");
-            if (arrow != null) arrow.gameObject.SetActive(true);
-            var arrowGlow = noteCubeTransform.Find("NoteArrowGlow");
-            if (arrowGlow != null) arrowGlow.gameObject.SetActive(true);
-            var circleGlow = noteCubeTransform.Find("NoteCircleGlow");
-            if (circleGlow != null) circleGlow.gameObject.SetActive(true);
-
-            var renderer = noteCubeTransform.GetComponent<MeshRenderer>();
-            var mf = noteCubeTransform.GetComponent<MeshFilter>();
-            int id = renderer?.GetInstanceID() ?? 0;
-
-            if (mf != null && _originalNoteMeshes.TryGetValue(id, out var origMesh))
+            RestoreNoteRendererVisuals(noteCubeRenderer.transform, noteCubeRenderer);
+            _bombedRenderersByNote.Remove(note);
+        }
+        else
+        {
+            var noteCubeTransform = FindNoteBlockTransform(note);
+            if (noteCubeTransform != null)
             {
-                mf.sharedMesh = origMesh;
-                _originalNoteMeshes.Remove(id);
-            }
-
-            if (renderer != null && _originalNoteMaterials.TryGetValue(id, out var origMat))
-            {
-                renderer.sharedMaterial = origMat;
-                _originalNoteMaterials.Remove(id);
+                var renderer = noteCubeTransform.GetComponent<MeshRenderer>();
+                RestoreNoteRendererVisuals(noteCubeTransform, renderer);
             }
         }
 
@@ -1984,6 +2162,66 @@ internal static class NoteCosmeticController
                 if (go != null) go.SetActive(true);
             }
             _disabledByBomb.Remove(note);
+        }
+
+        // Re-enable ancestor renderers we'd disabled for this bombed note too.
+        var renderersToRestore = new List<UnityEngine.Renderer>();
+        foreach (var kvp in _ancestorRendererEnabledByBomb)
+        {
+            if (kvp.Key == null) continue;
+            if (!kvp.Key.transform.IsChildOf(note.transform) && kvp.Key.transform != note.transform)
+                continue;
+            renderersToRestore.Add(kvp.Key);
+        }
+        foreach (var r in renderersToRestore)
+        {
+            if (_ancestorRendererEnabledByBomb.TryGetValue(r, out var origEnabled))
+            {
+                r.enabled = origEnabled;
+                _ancestorRendererEnabledByBomb.Remove(r);
+            }
+        }
+    }
+
+    private static void RestoreNoteRendererVisuals(Transform noteCubeTransform, MeshRenderer renderer)
+    {
+        if (noteCubeTransform != null)
+        {
+            var arrow = noteCubeTransform.Find("NoteArrow");
+            if (arrow != null) arrow.gameObject.SetActive(true);
+            var arrowGlow = noteCubeTransform.Find("NoteArrowGlow");
+            if (arrowGlow != null) arrowGlow.gameObject.SetActive(true);
+            var circleGlow = noteCubeTransform.Find("NoteCircleGlow");
+            if (circleGlow != null) circleGlow.gameObject.SetActive(true);
+        }
+
+        var mf = renderer != null ? renderer.GetComponent<MeshFilter>() : null;
+        int id = renderer?.GetInstanceID() ?? 0;
+
+        if (mf != null && _originalNoteMeshes.TryGetValue(id, out var origMesh))
+        {
+            mf.sharedMesh = origMesh;
+            _originalNoteMeshes.Remove(id);
+        }
+
+        if (renderer != null && _originalNoteMaterials.TryGetValue(id, out var origMat))
+        {
+            renderer.sharedMaterial = origMat;
+            _originalNoteMaterials.Remove(id);
+        }
+
+        if (renderer != null && _originalNoteRendererEnabled.TryGetValue(id, out var origEnabled))
+        {
+            renderer.enabled = origEnabled;
+            _originalNoteRendererEnabled.Remove(id);
+        }
+
+        // Put back the block renderer's original color property block so the note
+        // stops showing the bomb's HDR color after it is un-bombed.
+        if (renderer != null && _originalNoteProperties.TryGetValue(id, out var origMpb))
+        {
+            renderer.SetPropertyBlock(origMpb);
+            _originalNoteProperties.Remove(id);
         }
     }
 

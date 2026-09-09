@@ -164,7 +164,7 @@ public class PluginConfig
     // Vivify, or is a Work-in-Progress (CustomWIPLevels) map. These just gate
     // event dispatch to avoid clashing with mod-heavy / unfinished maps.
     public virtual bool PauseOnNoodleMaps { get; set; } = false;
-    public virtual bool PauseOnVivifyMaps { get; set; } = false;
+    public virtual bool PauseOnVivifyMaps { get; set; } = true;
     public virtual bool PauseOnWipMaps { get; set; } = true;
     // When enabled, all StreamReactive events are paused while the currently
     // playing map is ranked on BeatLeader, ScoreSaber, or both. Ranked status is

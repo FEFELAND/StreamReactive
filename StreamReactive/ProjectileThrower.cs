@@ -86,10 +86,24 @@ internal static class ProjectileThrower
                 && (_liveBlockMpbs[0] != null || _liveBlockMpbs[1] != null))
             {
                 _moddedRescanDone = true;
+                var prevPrefab = _noteVisualPrefab;
+                var prevTemplate = _prefabIsAssetTemplate;
                 ScanForNotePrefab();
+                // A Vivify-decorated source is strictly better than a plain-stock
+                // clone; never let a higher-vertex stock note steal the throw
+                // source once a Vivify one is cached (that just re-introduces the
+                // black/unpainted stock throws).
+                if (prevPrefab != null && SubtreeHasVivifyBase(prevPrefab)
+                    && !SubtreeHasVivifyBase(_noteVisualPrefab))
+                {
+                    _noteVisualPrefab = prevPrefab;
+                    _prefabIsAssetTemplate = prevTemplate;
+                }
                 Plugin.Log.Debug(_prefabIsAssetTemplate
                     ? "Projectile visuals: rescan kept template source."
                     : "Projectile visuals: rescan switched to live-clone source (modded visuals).");
+                if (!_prefabIsAssetTemplate)
+                    DropNotePools();
             }
 
             return;
@@ -175,14 +189,20 @@ internal static class ProjectileThrower
     /// <see cref="ScanForNotePrefab"/> performs. Called during normal note
     /// processing (cheap: inspects only this controller's children) so the
     /// first throw never pays for the scan on its own critical frame. Mirrors
-    /// the rescan branch in <see cref="EnsureNotePrefab"/>: only live clones
-    /// outrank the pristine asset templates we already cached.
+    /// the rescan branch in <see cref="EnsureNotePrefab"/>: a live clone with
+    /// higher preference (boosted by material richness) replaces whatever
+    /// template/plain-clone source is cached, so a stock-looking live clone
+    /// picked early can be rescued later once a custom Vivify note spawns.
     /// </summary>
     private static void TryUpgradePrefabFromLiveNote(NoteController controller, int colorIndex)
     {
-        // Only worth switching away from an asset template once real material
-        // captures exist for at least one side (modded-note scenarios).
-        if (!_prefabIsAssetTemplate || (_liveBlockMpbs[0] == null && _liveBlockMpbs[1] == null))
+        // Only worth switching once real material captures exist for at least
+        // one side (modded-note scenarios). Unlike earlier revisions this does
+        // NOT require _prefabIsAssetTemplate: a live source that only shows the
+        // stock body must still give way to a richer custom note later.
+        if (_liveBlockMpbs[0] == null && _liveBlockMpbs[1] == null)
+            return;
+        if (!Plugin.IsInGame)
             return;
 
         var isClone = controller.name.EndsWith("(Clone)", System.StringComparison.Ordinal);
@@ -194,6 +214,7 @@ internal static class ProjectileThrower
             return; // bombs, etc.: never
 
         var pref = basePref + 20; // cloneBoost, matching ScanForNotePrefab
+        var previous = _noteVisualPrefab;
         foreach (Transform child in controller.transform)
             ConsiderChild(child, $"{controller.name}/{child.name}", pref, !isClone,
                 ref _bestPrefab, ref _bestPrefabVerts, ref _bestPrefabPref, ref _prefabIsAssetTemplate);
@@ -201,8 +222,27 @@ internal static class ProjectileThrower
         // Lock in the live-clone source so the throw path's rescan is a no-op.
         // Only overwrite if we actually found a usable candidate; otherwise keep
         // the already-cached template prefab and just suppress the rescan.
-        if (_bestPrefab != null)
-            _noteVisualPrefab = _bestPrefab;
+        if (_bestPrefab != null && !ReferenceEquals(_bestPrefab, previous))
+        {
+            var nextVivify = SubtreeHasVivifyBase(_bestPrefab);
+            var prevVivify = previous != null && SubtreeHasVivifyBase(previous);
+            // Never let a plain-stock note replace a Vivify source just because
+            // its cube happens to have more vertices - that downgrade throws
+            // unpainted stock clones while the map's real custom note renders
+            // perfectly. Once a Vivify source exists it wins for the whole map.
+            if (nextVivify || !prevVivify)
+            {
+                _noteVisualPrefab = _bestPrefab;
+                Plugin.Log.Debug(
+                    $"Projectile visuals: prefab switched to {(nextVivify ? "vivify" : "stock")} " +
+                    $"candidate '{_bestPrefab.name}'.");
+                // The pool was primed from the asset template; those clones are plain
+                // stock notes that would throw while the new live source renders the
+                // full custom hierarchy. Drop them so the next throw re-clones from
+                // the live note and carries the complete Vivify visual.
+                DropNotePools();
+            }
+        }
         _moddedRescanDone = true;
     }
 
@@ -232,6 +272,46 @@ internal static class ProjectileThrower
 
         if (vertexCount < 100)
             return;
+
+        // A live-clone child hijacked for the projectile source. A subtree with
+        // several DISTINCT materials is a custom note (Vivify model, NoteTweaks
+        // extras) - cloning only the stock "NoteCube" would throw a plain note
+        // instead of the modded look. Richness beats the stock name tiers so a
+        // custom subtree is never downgraded back to a stock note mid-map.
+        if (!isTemplate && Plugin.IsInGame)
+        {
+            var matNames = new System.Collections.Generic.HashSet<string>();
+            foreach (var r in renderers)
+            {
+                if (r.sharedMaterial != null)
+                    matNames.Add(r.sharedMaterial.name);
+            }
+            var richness = matNames.Count;
+            if (richness >= 5) pref += 200;
+            else if (richness >= 4) pref += 120;
+            else if (richness >= 3) pref += 40;
+        }
+
+        // Live clones run while the map's notes are fully active; only accept
+        // children that actually render in the hierarchy. This keeps a mod-hidden
+        // stock NoteCube (Vivify parents its real model onto a custom child) from
+        // ever becoming the throw source. Template assets (isTemplate) aren't part
+        // of any scene, so everything reports inactive and must stay eligible.
+        if (!isTemplate && Plugin.IsInGame)
+        {
+            var hasActiveRenderer = false;
+            foreach (var r in renderers)
+            {
+                if (r.sharedMaterial != null && r.GetComponent<MeshFilter>()?.sharedMesh != null
+                    && (r.gameObject.activeSelf || r.gameObject.activeInHierarchy))
+                {
+                    hasActiveRenderer = true;
+                    break;
+                }
+            }
+            if (!hasActiveRenderer)
+                return;
+        }
 
         if (pref > bestPref
             || (pref == bestPref && vertexCount > bestVerts))
@@ -555,6 +635,7 @@ internal static class ProjectileThrower
             list.Clear();
         }
         Pool.Clear();
+        _notePoolStamp.Clear();
     }
 
     internal static void NotifyDestroyed(GameObject cube)
@@ -631,11 +712,45 @@ internal static class ProjectileThrower
         if (list.Count >= MaxPooledPerKey)
         {
             Object.Destroy(go);
+            _notePoolStamp.Remove(go.GetInstanceID());
             return;
         }
 
         list.Add(go);
     }
+
+    /// <summary>
+    /// Destroys every pooled note visual without draining the cube pool. Used
+    /// when the throw source switches from an asset template to a live clone:
+    /// template-primed notes are plain stock cubes that would keep throwing
+    /// the stock look after the pool's source changed. Live-note clones carry
+    /// bundle-referencing materials, so they are dropped for the same reason
+    /// they are dropped on scene changes.
+    /// </summary>
+    private static void DropNotePools()
+    {
+        foreach (var key in new[] { "noteA", "noteB" })
+        {
+            if (!Pool.TryGetValue(key, out var list))
+                continue;
+            foreach (var go in list)
+            {
+                if (go != null)
+                    Object.Destroy(go);
+                _notePoolStamp.Remove(go != null ? go.GetInstanceID() : 0);
+            }
+            list.Clear();
+            Pool.Remove(key);
+        }
+    }
+
+    // Remembers which prefab each pooled note visual was cloned from, so a
+    // stale clone (e.g. the plain stock note captured before a mod's custom
+    // note appeared) is discarded on reuse instead of throwing the old look.
+    // Keyed by the pooled GameObject's instance id; value is the prefab it was
+    // instantiated from (null when it predates this stamping / is a cube).
+    private static readonly System.Collections.Generic.Dictionary<int, object?> _notePoolStamp =
+        new System.Collections.Generic.Dictionary<int, object?>();
 
     private static string? PoolKeyFromName(string name)
     {
@@ -797,6 +912,16 @@ internal static class ProjectileThrower
                 // ever captured). It is not a real note, so discard it and clone a
                 // fresh note visual instead of throwing the placeholder.
                 Object.Destroy(pooled);
+                _notePoolStamp.Remove(pooled.GetInstanceID());
+                pooled = null;
+            }
+            if (pooled != null && !StampedForCurrentPrefab(pooled))
+            {
+                // This pooled clone carries an older visual structure (e.g. the
+                // plain stock note captured before a modded note appeared), so
+                // reusing it would throw the old look. Discard and re-clone.
+                Object.Destroy(pooled);
+                _notePoolStamp.Remove(pooled.GetInstanceID());
                 pooled = null;
             }
             if (pooled != null)
@@ -804,6 +929,7 @@ internal static class ProjectileThrower
                 pooled.SetActive(true);
                 if (ApplyNoteVisuals(pooled, colorIndex))
                 {
+                    _notePoolStamp[pooled.GetInstanceID()] = _noteVisualPrefab;
                     return pooled;
                 }
                 // This pooled clone came from a stock source (cached while the
@@ -815,6 +941,7 @@ internal static class ProjectileThrower
                 // correct outline-bearing clone once the live-note source is set.
                 Plugin.Log.Debug("Projectile visuals: pooled clone missing outline; discarding and re-cloning fresh.");
                 Object.Destroy(pooled);
+                _notePoolStamp.Remove(pooled.GetInstanceID());
                 pooled = null;
             }
 
@@ -832,11 +959,13 @@ internal static class ProjectileThrower
                 // frozen and invisible.
                 go.SetActive(true);
 
+                _notePoolStamp[go.GetInstanceID()] = _noteVisualPrefab;
                 if (!ApplyNoteVisuals(go, colorIndex))
                 {
                     // Stock template source lacks the outline the current preset
                     // needs. Fall back to a live-note source which carries it.
                     Object.Destroy(go);
+                    _notePoolStamp.Remove(go.GetInstanceID());
                     return CreateNoteVisualFromLiveSource(colorIndex);
                 }
             }
@@ -871,6 +1000,22 @@ internal static class ProjectileThrower
         }
 
         return go;
+    }
+
+    /// <summary>
+    /// True when the pooled note visual was cloned from the current prefab (a
+    /// stale clone would keep the old look - e.g. plain stock from before a
+    /// modded note appeared). Templates are allowed only for template sources;
+    /// live-clone sources demand the clone actually match the live prefab.
+    /// Objects without a recorded stamp are treated as stale to be safe.
+    /// </summary>
+    private static bool StampedForCurrentPrefab(GameObject pooled)
+    {
+        if (_noteVisualPrefab == null)
+            return false;
+        if (!_notePoolStamp.TryGetValue(pooled.GetInstanceID(), out var stamp))
+            return false;
+        return ReferenceEquals(stamp, _noteVisualPrefab);
     }
 
     /// <summary>
@@ -915,10 +1060,12 @@ internal static class ProjectileThrower
             foreach (var col in go.GetComponentsInChildren<Collider>(true))
                 Object.Destroy(col);
             go.SetActive(true);
+            _notePoolStamp[go.GetInstanceID()] = _noteVisualPrefab;
 
             if (!ApplyNoteVisuals(go, colorIndex))
             {
                 Object.Destroy(go);
+                _notePoolStamp.Remove(go.GetInstanceID());
                 _noteVisualPrefab = null;
                 return CreateCube();
             }
@@ -926,6 +1073,7 @@ internal static class ProjectileThrower
             if (go.GetComponentInChildren<MeshRenderer>(true) == null)
             {
                 Object.Destroy(go);
+                _notePoolStamp.Remove(go.GetInstanceID());
                 _noteVisualPrefab = null;
                 return CreateCube();
             }
@@ -976,16 +1124,17 @@ internal static class ProjectileThrower
     private static readonly Material?[] _liveBlockMats = new Material?[2];
     private static readonly Material?[] _liveArrowMats = new Material?[2];
     // Full per-renderer snapshots in child order from a live note: (instanced
-    // material, property block). Replayed against the clone's renderers in the
-    // same order so every element - block, arrow, outline, glow - keeps its own
-    // material AND its own colored property block (flat-black presets rely on a
-    // separately-colored outline, which a single block/arrow split always loses).
-    private static readonly List<(Material mat, MaterialPropertyBlock mpb)>?[] _liveRenderers = new List<(Material, MaterialPropertyBlock)>?[2];
+    // material, property block, renderer name). Replayed against the clone's
+    // renderers in the same order so every element - block, arrow, outline, glow
+    // - keeps its own material AND its own colored property block (flat-black
+    // presets rely on a separately-colored outline, which a single block/arrow
+    // split always loses). The stored name enables identity pairing for Vivify
+    // notes, whose structure mixes stock and separately-parented custom parts.
+    private static readonly List<(Material mat, MaterialPropertyBlock mpb, string name)>?[] _liveRenderers = new List<(Material, MaterialPropertyBlock, string)>?[2];
     // Tracks whether the captured snapshot of each color included an outline
     // renderer. Used to re-capture if an earlier (too-early) snapshot missed the
     // outline but a later live note has one.
     private static readonly bool[] _liveHasOutline = new bool[2];
-    private static bool _dumpedShaderProps;
 
     internal static void ResetCapturedLiveNoteMaterials()
     {
@@ -1031,6 +1180,12 @@ internal static class ProjectileThrower
 
         try
         {
+            // Bombed notes have their materials swapped for the bomb glow and
+            // their live MPBs re-colored; capturing one would poison this color's
+            // snapshot so every thrown block renders the bomb/glow. Skip them.
+            if (NoteCosmeticController.IsNoteBombed(controller))
+                return;
+
             var colorIndex = (int)controller.noteData.colorType;
             if (colorIndex < 0 || colorIndex > 1)
                 return;
@@ -1038,7 +1193,15 @@ internal static class ProjectileThrower
             var blockTransform = NoteCosmeticController.FindPreferredNoteBlockTransform(controller.transform);
             var block = blockTransform != null ? blockTransform.GetComponent<MeshRenderer>() : null;
 
-            if (block == null)
+            if (block == null || blockTransform == null)
+                return;
+
+            // A bombed note's material gets swapped to the bomb glow; same
+            // poisoning risk as above. Covers the brief window where the note
+            // is being bombed but is not yet registered in the bombed set.
+            var currentBlockMat = block.sharedMaterial;
+            if (currentBlockMat == null
+                || currentBlockMat.name.IndexOf("BombGlow", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return;
 
             // Snapshot every visible renderer (block, arrow, outline, glow) in
@@ -1046,8 +1209,16 @@ internal static class ProjectileThrower
             // what lets flat-black / outline-based presets carry their color: the
             // block itself may be black while the OUTLINE renderer holds the
             // per-note color, so we must judge readiness across all renderers,
-            // not just the block.
-            var renderers = new List<(Material, MaterialPropertyBlock)>();
+            // not just the block. Reading per-renderer MPBs (never mutating
+            // shared materials) keeps the source note untouched.
+            //
+            // IMPORTANT: iterate the WHOLE note (not just the block subtree).
+            // The per-renderer replay in ApplyNoteVisuals maps snapshot entries
+            // to the clone's renderers by enumeration order, and the clone is
+            // the note's full hierarchy - mods (Vivify) parent the arrow as a
+            // SIBLING of the block body under NoteCube, so only a full-note
+            // scan keeps the two orderings aligned.
+            var renderers = new List<(Material mat, MaterialPropertyBlock mpb, string name)>();
             var anyVisible = false;
             var hasOutline = false;
             foreach (var r in controller.GetComponentsInChildren<MeshRenderer>(true))
@@ -1060,7 +1231,7 @@ internal static class ProjectileThrower
                     anyVisible = true;
                 if (IsOutlineRenderer(r.gameObject))
                     hasOutline = true;
-                renderers.Add((r.sharedMaterial, mpb));
+                renderers.Add((r.sharedMaterial, mpb, r.gameObject.name));
             }
 
             if (!anyVisible || renderers.Count == 0)
@@ -1068,9 +1239,8 @@ internal static class ProjectileThrower
                 // The note's color state isn't ready yet (e.g. just spawned, or a
                 // preset whose colors are applied a frame later). Keep whatever we
                 // already captured for this side - it matches the last known good
-                // state - but DON'T let a stale snapshot survive a real change
-                // below. Just skip this init and try the next note.
-                Plugin.Log.Debug(
+                // state - and try the next note.
+                NoteCosmeticController.VerboseLog(
                     $"Projectile visuals: skipping premature capture for color {(colorIndex == 0 ? "A" : "B")} " +
                     $"from '{controller.name}/{block.name}' until its color state is ready.");
                 return;
@@ -1079,7 +1249,6 @@ internal static class ProjectileThrower
             var blockMpb = new MaterialPropertyBlock();
             block.GetPropertyBlock(blockMpb);
 
-            var currentBlockMat = block.sharedMaterial;
             var alreadyCaptured = _liveBlockMpbs[colorIndex] != null;
             var materialChanged = alreadyCaptured
                 && !ReferenceEquals(_liveBlockMats[colorIndex], currentBlockMat);
@@ -1124,7 +1293,7 @@ internal static class ProjectileThrower
 
                 NoteCosmeticController.VerboseLog(
                     $"Projectile visuals: {(alreadyCaptured ? "re-" : "")}captured live note visuals for color {(colorIndex == 0 ? "A" : "B")} " +
-                    $"(block '{currentBlockMat?.name}', arrow block {(arrowMpb != null ? "yes" : "no")}).");
+                    $"(block '{currentBlockMat.name}', arrow block {(arrowMat != null ? "yes" : "no")}).");
 
                 // Switch the projectile visual source to this live note now, during
                 // an ordinary note-init frame, so the first miss/throw never triggers
@@ -1138,12 +1307,122 @@ internal static class ProjectileThrower
         }
     }
 
+    // Vivify throws can snapshot a note mid-animation, when its per-frame
+    // property block colors are blank/white (the map animates color every
+    // frame, so an unlucky capture freezes a white body). Only such
+    // blank-white renderers get the scheme color forced onto them; black bodies
+    // (NoteTweaks flat-black preset) and already-colored bodies stay untouched.
+    private static bool IsBlankWhite(Color color)
+    {
+        var max = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
+        var min = Mathf.Min(color.r, Mathf.Min(color.g, color.b));
+        return color.a > 0.001f && max > 0.75f && (max - min) < 0.15f;
+    }
+
+    private static void ForceSchemeColorIfBlank(GameObject go, int colorIndex)
+    {
+        var color = colorIndex == 0 ? _noteColorA : _noteColorB;
+        foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var name = renderer.gameObject.name;
+            if (name.IndexOf("Outline", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                continue;
+            var isBody = (name.IndexOf("NoteCube", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                || name == "Base"
+                || (name.IndexOf("Arrow", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                || (name.IndexOf("Glow", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                || (name.IndexOf("Dot", System.StringComparison.OrdinalIgnoreCase) >= 0);
+            if (!isBody)
+                continue;
+            var mat = renderer.sharedMaterial;
+            if (mat == null)
+                continue;
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb);
+            var shader = mat.shader;
+            var colorProps = new System.Collections.Generic.HashSet<string>();
+            var changed = false;
+            for (var i = 0; i < shader.GetPropertyCount(); i++)
+            {
+                if (shader.GetPropertyType(i) != UnityEngine.Rendering.ShaderPropertyType.Color)
+                    continue;
+                var propName = shader.GetPropertyName(i);
+                colorProps.Add(propName);
+                if (IsBlankWhite(mpb.HasProperty(propName) ? mpb.GetColor(propName) : mat.GetColor(propName)))
+                {
+                    mpb.SetColor(propName, color);
+                    changed = true;
+                }
+            }
+            foreach (var propName in NoteColorProperties)
+            {
+                if (colorProps.Contains(propName) || !mat.HasProperty(propName))
+                    continue;
+                if (IsBlankWhite(mat.GetColor(propName)))
+                {
+                    mpb.SetColor(propName, color);
+                    changed = true;
+                }
+            }
+            if (changed)
+                renderer.SetPropertyBlock(mpb);
+        }
+    }
+
+    // A cloned note carries whatever arrow/dot combination the SOURCE note had.
+    // Plain stock notes leave both renderers active, so arrow throws show the
+    // dot ring simultaneously (the base game toggles them per note type). Custom
+    // Vivify notes (have their own 'Base' body) and NoteTweaks notes (have an
+    // outline child) are copied faithfully; only bare stock clones get the dot
+    // hidden when an arrow is present.
+    private static void NormalizeArrowDotVisibility(GameObject go)
+    {
+        var hasCustomBody = false;
+        var hasOutline = false;
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var name = r.gameObject.name;
+            if (name == "Base")
+                hasCustomBody = true;
+            if (name.IndexOf("Outline", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                hasOutline = true;
+        }
+        if (hasCustomBody || hasOutline)
+            return;
+
+        var hasArrow = false;
+        foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var name = renderer.gameObject.name;
+            if (renderer.gameObject.activeSelf
+                && (name.IndexOf("NoteArrow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    || name == "Arrow"))
+            {
+                hasArrow = true;
+                break;
+            }
+        }
+        if (!hasArrow)
+            return;
+
+        foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var name = renderer.gameObject.name;
+            if (name.IndexOf("NoteCircleGlow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                || name.IndexOf("Dot", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                renderer.gameObject.SetActive(false);
+            }
+        }
+    }
+
     /// <summary>
-    /// Colors the cloned note. Preferred path: replay the captured live
-    /// MaterialPropertyBlocks for the requested scheme side (exactly what the
-    /// game does, per red/blue). Fallback: write player-matched colors into
-    /// every color-ish material property, and dump the shader's properties
-    /// once so failures are diagnosable from the log.
+    /// Colors the cloned note from the live capture for the requested scheme
+    /// side. Preferred path: replay the captured per-renderer materials and
+    /// property blocks (block, arrow, outline, glow each keep their own material
+    /// AND their own colored block) - this is what flat-black / outline-based
+    /// NoteTweaks presets need. Falls back to a block/arrow split of the live
+    /// capture, then to player-matched colors.
     /// </summary>
     /// <returns>False if the snapshot expects an outline renderer but the clone
     /// has none (the clone was made from a stock source that lacks the outline
@@ -1153,10 +1432,10 @@ internal static class ProjectileThrower
     {
         // Preferred: full per-renderer replay of a live note's materials and
         // property blocks in child order. This preserves every element of the
-        // source note - block, arrow, outline, glow - with each keeping its own
-        // material AND its own colored block, which is exactly what flat-black /
-        // outline-based NoteTweaks presets need. Falls back to the block/arrow
-        // split below if no live renderer snapshot exists (e.g. menu templates).
+        // source note - block, arrow, outline, glow - even when the clone was
+        // built from a source whose own materials lagged the capture (e.g. a
+        // stock body still on NoteHD while the live note already runs the
+        // NoteTweaks preset).
         var snapshot = _liveRenderers[colorIndex] ?? _liveRenderers[1 - colorIndex];
         if (snapshot != null && snapshot.Count > 0)
         {
@@ -1169,6 +1448,18 @@ internal static class ProjectileThrower
 
             if (cloneRenderers.Count > 0)
             {
+                // Vivify maps mount the custom body/arrow as entirely separate
+                // children while leaving the stock renderers active too. Index
+                // replay would copy the uncolored stock body over the custom look
+                // (all-white throws), and on the stock-shaped clones these maps
+                // also spawn it paints the wrong snapshot entries. Detect the
+                // Vivify source from the SNAPSHOT and always paint it by name.
+                if (SnapshotHasVivifyBody(snapshot))
+                {
+                    ApplyVivifySemanticPaint(go, colorIndex, snapshot);
+                    return true;
+                }
+
                 // Outline presence is decided by which renderer children the clone
                 // actually has. When the snapshot carries an outline but this clone
                 // was built from a stock source, the outline child is absent and no
@@ -1187,7 +1478,7 @@ internal static class ProjectileThrower
                 var n = Mathf.Min(cloneRenderers.Count, snapshot.Count);
                 for (int i = 0; i < n; i++)
                 {
-                    var (srcMat, srcMpb) = snapshot[i];
+                    var (srcMat, srcMpb, _) = snapshot[i];
                     var renderer = cloneRenderers[i];
                     // Fresh instance so we never share state with or mutate a real
                     // note; then replay that renderer's own property block on top.
@@ -1198,7 +1489,7 @@ internal static class ProjectileThrower
                 // block applied so they never render with a flat stock material.
                 if (cloneRenderers.Count > snapshot.Count)
                 {
-                    var (lastMat, lastMpb) = snapshot[snapshot.Count - 1];
+                    var (lastMat, lastMpb, _) = snapshot[snapshot.Count - 1];
                     for (int i = snapshot.Count; i < cloneRenderers.Count; i++)
                     {
                         var renderer = cloneRenderers[i];
@@ -1206,6 +1497,12 @@ internal static class ProjectileThrower
                         renderer.SetPropertyBlock(lastMpb);
                     }
                 }
+
+                ForceSchemeColorIfBlank(go, colorIndex);
+                NormalizeArrowDotVisibility(go);
+                NoteCosmeticController.VerboseLog(
+                    $"Projectile visuals: applied to '{go.name}' via per-renderer replay " +
+                    $"color={(colorIndex == 0 ? "A" : "B")}.");
                 return true;
             }
         }
@@ -1244,8 +1541,8 @@ internal static class ProjectileThrower
         }
 
         // In "one saber" maps only a single note color actually spawns, so only
-        // that color's live MaterialPropertyBlock ever gets captured. Both projectile
-        // sides must still look like notes, so fall back to the other color's capture
+        // that color's live capture ever exists. Both projectile sides must
+        // still look like notes, so fall back to the other color's capture
         // whenever the requested side has none yet.
         var blockMpb = _liveBlockMpbs[colorIndex] ?? _liveBlockMpbs[1 - colorIndex];
         var arrowMpb = _liveArrowMpbs[colorIndex] ?? _liveArrowMpbs[1 - colorIndex];
@@ -1260,23 +1557,31 @@ internal static class ProjectileThrower
             // touching, a real note on the field; the shared material itself stays
             // untouched. The MPB replay below still applies the correct red/blue.
             blockRenderer.sharedMaterial = new Material(blockMat);
+            blockRenderer.sharedMaterial.name = $"SRNote{(colorIndex == 0 ? "A" : "B")}";
             foreach (var other in others)
             {
-                if (arrowMat != null)
-                    other.sharedMaterial = new Material(arrowMat);
-                else
-                    other.sharedMaterial = new Material(blockMat);
+                var source = arrowMat ?? blockMat;
+                if (other.sharedMaterial == null || source == null)
+                    continue;
+                other.sharedMaterial = new Material(source);
+                other.sharedMaterial.name = $"SRNote{(colorIndex == 0 ? "A" : "B")}";
             }
         }
 
-        if (blockMpb != null && blockRenderer != null)
-        {
-            blockRenderer.SetPropertyBlock(blockMpb);
-            foreach (var other in others)
+if (blockMpb != null && blockRenderer != null)
             {
-                if (arrowMpb != null)
-                    other.SetPropertyBlock(arrowMpb);
-            }
+                blockRenderer.SetPropertyBlock(blockMpb);
+                foreach (var other in others)
+                {
+                    if (arrowMpb != null)
+                        other.SetPropertyBlock(arrowMpb);
+                }
+                ForceSchemeColorIfBlank(go, colorIndex);
+                NormalizeArrowDotVisibility(go);
+                NoteCosmeticController.VerboseLog(
+                $"Projectile visuals: applied to '{go.name}' block='{blockRenderer.sharedMaterial?.name ?? "?"}' " +
+                $"({blockRenderer.name}) arrow='{(others.Count > 0 ? others[0].sharedMaterial?.name : arrowMat?.name ?? blockMat?.name ?? "?")}' " +
+                $"color={(colorIndex == 0 ? "A" : "B")}.");
             return true;
         }
 
@@ -1293,11 +1598,9 @@ internal static class ProjectileThrower
             if (mat == null)
                 continue;
 
-            DumpShaderPropertiesOnce(mat);
-
             var mpb = new MaterialPropertyBlock();
             renderer.GetPropertyBlock(mpb);
-            foreach (var propName in new[] { "_Color", "_SimpleColor", "_BaseColor", "_BlockColor" })
+            foreach (var propName in NoteColorProperties)
             {
                 if (mat.HasProperty(propName))
                     mpb.SetColor(propName, color);
@@ -1308,9 +1611,9 @@ internal static class ProjectileThrower
     }
 
     // True if any snapshot renderer material/name indicates an outline shell.
-    private static bool snapshotHasOutline(List<(Material mat, MaterialPropertyBlock mpb)> snapshot)
+    private static bool snapshotHasOutline(List<(Material mat, MaterialPropertyBlock mpb, string name)> snapshot)
     {
-        foreach (var (m, _) in snapshot)
+        foreach (var (m, _, _) in snapshot)
         {
             if (m != null && m.name.IndexOf("Outline", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
@@ -1329,30 +1632,154 @@ internal static class ProjectileThrower
         return false;
     }
 
-    private static void DumpShaderPropertiesOnce(Material mat)
+    // True when the live-note snapshot carries a separately-parented custom
+    // body ('Base'), i.e. the throw source is a Vivify-decorated note. The map
+    // may still spawn PLAIN stock notes on the same field; detection is driven
+    // by the snapshot so every throw on a Vivify map takes this path even when
+    // the clone itself is stock-shaped (which the old clone-gated check missed,
+    // silently rerouting those throws into index replay and painting the stock
+    // clone with the vivify snapshot's stock-first entries - invisible body,
+    // white arrow, stock dot still on).
+    private static bool SnapshotHasVivifyBody(
+        List<(Material mat, MaterialPropertyBlock mpb, string name)> snapshot)
     {
-        if (_dumpedShaderProps)
-            return;
-        _dumpedShaderProps = true;
-
-        try
+        foreach (var (_, _, name) in snapshot)
         {
-            var shader = mat.shader;
-            var sb = new System.Text.StringBuilder("Projectile visuals: fallback material '")
-                .Append(mat.name).Append("' shader '").Append(shader.name).Append("' color props:");
-            var count = shader.GetPropertyCount();
-            for (var i = 0; i < count; i++)
-            {
-                if (shader.GetPropertyType(i) != UnityEngine.Rendering.ShaderPropertyType.Color)
-                    continue;
-                var propName = shader.GetPropertyName(i);
-                sb.Append(' ').Append(propName).Append('=').Append(mat.GetColor(propName));
-            }
-            Plugin.Log.Info(sb.ToString());
+            if (name == "Base")
+                return true;
         }
-        catch (System.Exception ex)
+        return false;
+    }
+
+    // True when the given throw-source subtree carries a separate Vivify custom
+    // body renderer named 'Base'. Used to keep a vivify-decorated throw source
+    // from ever being downgraded to the plain-stock clone the map also spawns.
+    private static bool SubtreeHasVivifyBase(GameObject? root)
+    {
+        if (root == null)
+            return false;
+        foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
         {
-            Plugin.Log.Debug($"Projectile visuals: shader dump failed: {ex.Message}");
+            if (r.gameObject.name == "Base")
+                return true;
+        }
+        return false;
+    }
+
+    // Vivify maps mount the custom body ('Base') and custom arrow as separate
+    // children while leaving the stock renderers active too. Reconstructing the
+    // note's look from a block/arrow split always misrepresents one of them, and
+    // disabling the custom children leaves the throw invisible (those are the
+    // parts that actually render on these notes). Instead: paint every clone
+    // renderer from the snapshot entry with the SAME renderer name, disable
+    // nothing, and let the scheme-color pass colorize any blank-white parts.
+    //
+    // Two clone shapes are handled:
+    //  - Vivify-shaped clone (has real 'Base'): every renderer matches a
+    //    snapshot entry by name and stays faithful (stock NoteCube keeps the
+    //    vivify note's transparent stock sibling; the custom body renders).
+    //  - Stock-shaped clone (no 'Base', e.g. a plain note the map spawned):
+    //    the stock body/arrow are painted from the vivify 'Base'/'Arrow'
+    //    entries so the throw still reads as the Vivify texture in the right
+    //    color instead of the transparent/white wreckage index replay produced,
+    //    and the stock dot ring is hidden because a vivify arrow is present.
+    private static bool ApplyVivifySemanticPaint(
+        GameObject go, int colorIndex,
+        List<(Material mat, MaterialPropertyBlock mpb, string name)> snapshot)
+    {
+        var hasCustomBody = false;
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (r.gameObject.name == "Base")
+            {
+                hasCustomBody = true;
+                break;
+            }
+        }
+
+        (Material mat, MaterialPropertyBlock mpb, string name)? blockSrc = null;
+        (Material mat, MaterialPropertyBlock mpb, string name)? arrowSrc = null;
+        foreach (var e in snapshot)
+        {
+            if (e.name == "Base" && blockSrc == null)
+                blockSrc = e;
+            if (e.name == "Arrow" && arrowSrc == null)
+                arrowSrc = e;
+        }
+
+        foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (renderer.sharedMaterial == null || renderer.GetComponent<MeshFilter>()?.sharedMesh == null)
+                continue;
+            var name = renderer.gameObject.name;
+            (Material mat, MaterialPropertyBlock mpb, string name)? src = null;
+            if (!hasCustomBody)
+            {
+                // Stock-shaped clone (a plain note the map also spawns): its body
+                // renderer lives ON the root, whose name was renamed to the clone's
+                // ("StreamReactiveProjectile-NoteA"), so name matching finds nothing
+                // and the stock body would render unpainted/black. Source body and
+                // arrow from the Vivify 'Base'/'Arrow' entries instead.
+                if (renderer.transform == go.transform
+                    || name.IndexOf("NoteCube", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    src = blockSrc;
+                }
+                else if (name == "NoteArrow")
+                {
+                    src = arrowSrc ?? blockSrc;
+                }
+                else
+                {
+                    foreach (var e in snapshot)
+                    {
+                        if (e.name == name)
+                        {
+                            src = e;
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                foreach (var e in snapshot)
+                {
+                    if (e.name == name)
+                    {
+                        src = e;
+                        break;
+                    }
+                }
+            }
+            if (src == null)
+                continue;
+            renderer.sharedMaterial = new Material(src.Value.mat);
+            renderer.SetPropertyBlock(src.Value.mpb);
+        }
+
+        if (!hasCustomBody)
+            NormalizeArrowDotVisibility(go);
+        else if (arrowSrc != null)
+            EnsureCloneArrowVisible(go);
+        ForceSchemeColorIfBlank(go, colorIndex);
+        NoteCosmeticController.VerboseLog(
+            $"Projectile visuals: applied to '{go.name}' via Vivify semantic paint " +
+            (hasCustomBody ? "" : "(stock-shaped clone) ") +
+            $"color={(colorIndex == 0 ? "A" : "B")}.");
+        return true;
+    }
+
+    // Fixes the "sometimes the arrow is missing" throw: vivify clones inherit
+    // the source note's arrow active state, and vivify dot/directionless notes
+    // spawn with the custom 'Arrow' renderer inactive. Painting it still leaves
+    // it invisible, so force the clone's custom arrow back on.
+    private static void EnsureCloneArrowVisible(GameObject go)
+    {
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (r.gameObject.name == "Arrow")
+                r.gameObject.SetActive(true);
         }
     }
 
