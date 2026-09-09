@@ -1,3 +1,9 @@
+# 1.1.3
+### Vivify fixes attempt
+- Bomb no longer makes notes invisible on most maps. But still an issue on fancy ones like [End Times](https://beatsaver.com/maps/43a24)
+- Throw should mostly correctly copy the notes if they have been modified by vivify. Still a little odd. Need to poke at further.
+- Map protection/pause for Vivify is now on by default since it has a few issues. Again, might need to poke at more later.
+
 # 1.1.2
 - Bombs: Added "Strip Message Tags" toggle. (makes things like `<color=#ffffff>` `<size=40>` not work)
 - Bombs: Added "Glow Brightness" slider.
