@@ -38,6 +38,7 @@
 <nav>
   <a href="/">Test Dashboard</a>
   <a href="/generator">Message Generator</a>
+  <a href="/debug">Debug</a>
 </nav>
 
 <h1>WebSocket Message Generator</h1>
@@ -416,11 +417,14 @@ document.getElementById('eventType').addEventListener('change', function() {
 
 document.getElementById('endpointId').addEventListener('input', generate);
 
-if (location.pathname.endsWith('/generator')) {
-  document.querySelectorAll('nav a').forEach(function(a) {
-    if (a.getAttribute('href') === '/generator') a.classList.add('active');
-  });
-}
+document.querySelectorAll('nav a').forEach(function(a) {
+  var href = a.getAttribute('href');
+  if (href === '/') {
+    if (location.pathname === '/' || location.pathname.endsWith('/index')) a.classList.add('active');
+  } else if (location.pathname.endsWith(href)) {
+    a.classList.add('active');
+  }
+});
 
 buildFields();
 </script>

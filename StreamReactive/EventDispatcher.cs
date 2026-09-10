@@ -23,6 +23,13 @@ internal static class EventDispatcher
             return;
         }
 
+        if (string.Equals(type, "dump_scene", StringComparison.OrdinalIgnoreCase))
+        {
+            NoteCosmeticController.DumpSceneToFile();
+            Plugin.Log.Info("Scene dump requested.");
+            return;
+        }
+
         var cfg = PluginConfig.Instance;
 
         // "socket" control: turns the whole plugin on/off — identical to the

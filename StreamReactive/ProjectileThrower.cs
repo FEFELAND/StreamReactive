@@ -49,6 +49,7 @@ internal static class ProjectileThrower
     private static int _bestPrefabPref;
     private static bool _moddedRescanDone;
     private static float _lastNoteLookup;
+    private static float _lastVivifyFamilySwitch;
     private static Material? _orangeMaterial;
     private static Color _noteColorA = new Color(1f, 0.235f, 0.235f); // fallback: BS default red
     private static Color _noteColorB = new Color(0.156f, 0.556f, 1f); // fallback: BS default blue
@@ -96,8 +97,15 @@ internal static class ProjectileThrower
                 if (prevPrefab != null && SubtreeHasVivifyBase(prevPrefab)
                     && !SubtreeHasVivifyBase(_noteVisualPrefab))
                 {
+                    // The rescan just froze a new owned copy that would replace a
+                    // strictly-better Vivify source; destroy the replacement and
+                    // restore the previous prefab (itself an owned freeze clone).
+                    if (!_prefabIsAssetTemplate && _noteVisualPrefab != null
+                        && !ReferenceEquals(_noteVisualPrefab, prevPrefab))
+                        Object.Destroy(_noteVisualPrefab);
                     _noteVisualPrefab = prevPrefab;
                     _prefabIsAssetTemplate = prevTemplate;
+                    _bestPrefab = prevPrefab;
                 }
                 Plugin.Log.Debug(_prefabIsAssetTemplate
                     ? "Projectile visuals: rescan kept template source."
@@ -177,10 +185,81 @@ internal static class ProjectileThrower
                     ref _bestPrefab, ref _bestPrefabVerts, ref _bestPrefabPref, ref bestIsTemplate);
         }
 
-        _noteVisualPrefab = _bestPrefab;
-        _prefabIsAssetTemplate = bestIsTemplate;
+        if (_bestPrefab != null && !bestIsTemplate)
+        {
+            // A live clone is a game-owned, recycled GameObject - the game
+            // rebuilds its hierarchy for the next note at any moment (Vivify
+            // sometimes parents the custom body under the note rather than the
+            // cube). Freeze a private snapshot-clone so the throw source (and
+            // every pooled clone and fingerprint check) stays stable for the
+            // whole map instead of chasing the recycled GO's evolving shape.
+            FreezeLiveSource(_bestPrefab, _bestPrefabVerts, _bestPrefabPref);
+        }
+        else
+        {
+            _noteVisualPrefab = _bestPrefab;
+            _prefabIsAssetTemplate = bestIsTemplate;
+        }
         if (_bestPrefab != null)
             TryCaptureNoteColors();
+    }
+
+    /// <summary>
+    /// Caches a private snapshot-clone of a live game note as the throw source
+    /// and drops any previously-owned source. Live note GOs are recycled by the
+    /// game: the same object that rendered the Vivify custom body can be rebuilt
+    /// into a plain note moments later. Cloning it once here (and never cloning
+    /// the recycled GO itself) is what keeps the throw source, every pooled
+    /// clone, and the structural fingerprint consistent for the whole map.
+    /// </summary>
+    private static void FreezeLiveSource(GameObject liveRoot, int verts, int pref)
+    {
+        if (liveRoot == null)
+            return;
+        try
+        {
+            var owned = Object.Instantiate(liveRoot);
+            owned.name = "StreamReactiveProjectile-Source";
+            // Never let the source render in the arena - it is only ever cloned.
+            owned.SetActive(false);
+            foreach (var mb in owned.GetComponentsInChildren<MonoBehaviour>(true))
+                Object.Destroy(mb);
+            foreach (var col in owned.GetComponentsInChildren<Collider>(true))
+                Object.Destroy(col);
+            SetPrefabSource(owned);
+            Plugin.Log.Debug(
+                $"Projectile visuals: froze live source '{liveRoot.name}' as owned prefab " +
+                $"({verts} verts, pref {pref}).");
+        }
+        catch (System.Exception ex)
+        {
+            Plugin.Log.Warn(
+                $"Projectile visuals: failed to freeze live source ({ex.Message}); caching the live GO directly.");
+            SetPrefabSource(liveRoot);
+        }
+    }
+
+    private static void SetPrefabSource(GameObject source)
+    {
+        var prev = _noteVisualPrefab;
+        var prevTemplate = _prefabIsAssetTemplate;
+        if (prev != null && !ReferenceEquals(prev, source) && !prevTemplate)
+            Object.Destroy(prev);
+        _noteVisualPrefab = source;
+        _prefabIsAssetTemplate = false;
+        _bestPrefab = source;
+    }
+
+    /// <summary>
+    /// Clears the throw source. An owned snapshot-clone may reference the map's
+    /// AssetBundles, so it is destroyed; pristine asset templates are core game
+    /// objects and are only dereferenced.
+    /// </summary>
+    private static void ClearPrefabSource()
+    {
+        if (!_prefabIsAssetTemplate && _noteVisualPrefab != null)
+            Object.Destroy(_noteVisualPrefab);
+        _noteVisualPrefab = null;
     }
 
     /// <summary>
@@ -230,16 +309,45 @@ internal static class ProjectileThrower
             // its cube happens to have more vertices - that downgrade throws
             // unpainted stock clones while the map's real custom note renders
             // perfectly. Once a Vivify source exists it wins for the whole map.
-            if (nextVivify || !prevVivify)
+            //
+            // EXCEPTION: Vivify maps sometimes swap the custom note FAMILY
+            // mid-map (same NoteCube, different 'Base'/'Arrow' materials, e.g.
+            // Reflective -> Glass -> Drop sections). The frozen source is a
+            // snapshot-clone locked to its birth moment, so without re-freezing
+            // those throws keep the previous family's shape while the per-side
+            // material captures already carry the new one - and because each
+            // side's snapshot re-captures on its own note-init frame, one side
+            // can briefly throw the stale family until its next capture. Detect
+            // a family change (Base material identity or structure) and re-freeze
+            // the source, throttled so a family ping-pong cannot thrash the
+            // pools every note.
+            var familyChanged = false;
+            var allowSwitch = nextVivify || !prevVivify;
+            if (nextVivify && prevVivify)
             {
-                _noteVisualPrefab = _bestPrefab;
+                familyChanged = VivifyFamilyChanged(previous!, _bestPrefab);
+                allowSwitch = familyChanged && Time.time - _lastVivifyFamilySwitch > 3f;
+                if (familyChanged && allowSwitch)
+                    _lastVivifyFamilySwitch = Time.time;
+            }
+            if (allowSwitch)
+            {
+                // Source is always a live clone here (isClone gate above). Cache a
+                // private snapshot-clone so the game recycling this GO for the next
+                // note cannot silently re-shape the throw source mid-map - the
+                // recycled GO would otherwise keep throwing the wrong visual once
+                // it gets rebuilt into a different note family.
+                var liveName = _bestPrefab.name;
+                var liveVerts = _bestPrefabVerts;
+                var livePref = _bestPrefabPref;
+                FreezeLiveSource(_bestPrefab, liveVerts, livePref);
                 Plugin.Log.Debug(
                     $"Projectile visuals: prefab switched to {(nextVivify ? "vivify" : "stock")} " +
-                    $"candidate '{_bestPrefab.name}'.");
+                    $"candidate '{liveName}'{(familyChanged ? " (vivify family change)" : "")}.");
                 // The pool was primed from the asset template; those clones are plain
                 // stock notes that would throw while the new live source renders the
                 // full custom hierarchy. Drop them so the next throw re-clones from
-                // the live note and carries the complete Vivify visual.
+                // the frozen live-note copy and carries the complete visual.
                 DropNotePools();
             }
         }
@@ -313,14 +421,31 @@ internal static class ProjectileThrower
                 return;
         }
 
-        if (pref > bestPref
+        // Vivify family tracking: when the accumulated best and this candidate are
+        // both custom Vivify notes but their 'Base' body material differs, the map
+        // is switching note families mid-map. Those candidates TIE on pref/verts
+        // (same NoteCube), so without this they would never replace the first
+        // family's note and TryUpgradePrefabFromLiveNote would never see the
+        // switch (the frozen throw source silently keeping the old family's look).
+        // A family difference is treated as a win even on a tie; the re-freeze
+        // itself stays throttled back in TryUpgradePrefabFromLiveNote.
+        var crossFamily = false;
+        if (!isTemplate && best != null)
+        {
+            var bestFamily = VivifyFamilyName(best);
+            var childFamily = VivifyFamilyName(child.gameObject);
+            crossFamily = bestFamily != null && childFamily != null && bestFamily != childFamily;
+        }
+        if (crossFamily
+            || pref > bestPref
             || (pref == bestPref && vertexCount > bestVerts))
         {
             best = child.gameObject;
             bestVerts = vertexCount;
             bestPref = pref;
             bestIsTemplate = isTemplate;
-            Plugin.Log.Debug($"Projectile visuals: candidate '{label}' accepted (pref {pref}, {vertexCount} verts, template={isTemplate}).");
+            Plugin.Log.Debug($"Projectile visuals: candidate '{label}' accepted (pref {pref}, {vertexCount} verts, template={isTemplate})" +
+                (crossFamily ? " (vivify family change)" : "") + ".");
         }
     }
 
@@ -635,7 +760,6 @@ internal static class ProjectileThrower
             list.Clear();
         }
         Pool.Clear();
-        _notePoolStamp.Clear();
     }
 
     internal static void NotifyDestroyed(GameObject cube)
@@ -661,10 +785,9 @@ internal static class ProjectileThrower
         // the placeholder cube, and the gate stays warm under continuous spam.
         _lastNoteLookup = 0f;
         // Asset templates are core game objects, safe to keep across scenes -
-        // keeping them is what lets menu throws use real notes. Live clones
-        // may reference another map's bundles and must go.
-        if (!_prefabIsAssetTemplate)
-            _noteVisualPrefab = null;
+        // keeping them is what lets menu throws use real notes. Owned
+        // snapshot-clones may reference another map's bundles and must go.
+        ClearPrefabSource();
         // Live note material snapshots can hold bundle references (modded note
         // materials), so they must not survive a scene change. MPBs are plain
         // property bags and stay as-is (see below).
@@ -712,7 +835,6 @@ internal static class ProjectileThrower
         if (list.Count >= MaxPooledPerKey)
         {
             Object.Destroy(go);
-            _notePoolStamp.Remove(go.GetInstanceID());
             return;
         }
 
@@ -737,20 +859,38 @@ internal static class ProjectileThrower
             {
                 if (go != null)
                     Object.Destroy(go);
-                _notePoolStamp.Remove(go != null ? go.GetInstanceID() : 0);
             }
             list.Clear();
             Pool.Remove(key);
         }
     }
 
-    // Remembers which prefab each pooled note visual was cloned from, so a
-    // stale clone (e.g. the plain stock note captured before a mod's custom
-    // note appeared) is discarded on reuse instead of throwing the old look.
-    // Keyed by the pooled GameObject's instance id; value is the prefab it was
-    // instantiated from (null when it predates this stamping / is a cube).
-    private static readonly System.Collections.Generic.Dictionary<int, object?> _notePoolStamp =
-        new System.Collections.Generic.Dictionary<int, object?>();
+    /// <summary>
+    /// Compact structural signature of a note visual subtree: the ordered list
+    /// of "rendererName@meshName" for every renderer that has a material and a
+    /// mesh. Two note objects are interchangeable for our paint purposes only
+    /// when their signatures match exactly - materials/meshes are repainted on
+    /// every reuse anyway, so it is the SHAPE (renderer names + mesh identity)
+    /// that decides whether a pooled clone is still valid.
+    /// </summary>
+    private static string? StructureFingerprint(GameObject root)
+    {
+        if (root == null)
+            return null;
+        var sb = new System.Text.StringBuilder();
+        var count = 0;
+        foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var mf = r.GetComponent<MeshFilter>();
+            if (r.sharedMaterial == null || mf?.sharedMesh == null)
+                continue;
+            if (count > 0)
+                sb.Append('|');
+            sb.Append(r.gameObject.name).Append('@').Append(mf.sharedMesh.name);
+            count++;
+        }
+        return count == 0 ? null : sb.ToString();
+    }
 
     private static string? PoolKeyFromName(string name)
     {
@@ -912,26 +1052,22 @@ internal static class ProjectileThrower
                 // ever captured). It is not a real note, so discard it and clone a
                 // fresh note visual instead of throwing the placeholder.
                 Object.Destroy(pooled);
-                _notePoolStamp.Remove(pooled.GetInstanceID());
                 pooled = null;
             }
             if (pooled != null && !StampedForCurrentPrefab(pooled))
             {
-                // This pooled clone carries an older visual structure (e.g. the
-                // plain stock note captured before a modded note appeared), so
+                // This pooled clone has a different structural signature than the
+                // current source (e.g. it was captured before a modded note
+                // attached its custom model to the same pooled NoteCube), so
                 // reusing it would throw the old look. Discard and re-clone.
                 Object.Destroy(pooled);
-                _notePoolStamp.Remove(pooled.GetInstanceID());
                 pooled = null;
             }
             if (pooled != null)
             {
                 pooled.SetActive(true);
                 if (ApplyNoteVisuals(pooled, colorIndex))
-                {
-                    _notePoolStamp[pooled.GetInstanceID()] = _noteVisualPrefab;
                     return pooled;
-                }
                 // This pooled clone came from a stock source (cached while the
                 // source was still a template) and is missing the outline the
                 // snapshot expects. Do NOT run the expensive synchronously-on-
@@ -941,7 +1077,6 @@ internal static class ProjectileThrower
                 // correct outline-bearing clone once the live-note source is set.
                 Plugin.Log.Debug("Projectile visuals: pooled clone missing outline; discarding and re-cloning fresh.");
                 Object.Destroy(pooled);
-                _notePoolStamp.Remove(pooled.GetInstanceID());
                 pooled = null;
             }
 
@@ -959,13 +1094,11 @@ internal static class ProjectileThrower
                 // frozen and invisible.
                 go.SetActive(true);
 
-                _notePoolStamp[go.GetInstanceID()] = _noteVisualPrefab;
                 if (!ApplyNoteVisuals(go, colorIndex))
                 {
                     // Stock template source lacks the outline the current preset
                     // needs. Fall back to a live-note source which carries it.
                     Object.Destroy(go);
-                    _notePoolStamp.Remove(go.GetInstanceID());
                     return CreateNoteVisualFromLiveSource(colorIndex);
                 }
             }
@@ -982,7 +1115,7 @@ internal static class ProjectileThrower
             {
                 // Bad candidate - don't trust it again this session.
                 Object.Destroy(go);
-                _noteVisualPrefab = null;
+                ClearPrefabSource();
                 Plugin.Log.Warn("Projectile visuals: cloned note had no renderer; discarding and falling back to cube.");
                 return CreateCube();
             }
@@ -1003,19 +1136,22 @@ internal static class ProjectileThrower
     }
 
     /// <summary>
-    /// True when the pooled note visual was cloned from the current prefab (a
-    /// stale clone would keep the old look - e.g. plain stock from before a
-    /// modded note appeared). Templates are allowed only for template sources;
-    /// live-clone sources demand the clone actually match the live prefab.
-    /// Objects without a recorded stamp are treated as stale to be safe.
+    /// True when a pooled note visual still matches the current source's
+    /// STRUCTURE (renderer names + mesh identity), not merely that it was
+    /// cloned from the same reference. This is what catches a source GO that
+    /// grows in place - Vivify/NoteTweaks mount their custom model onto the
+    /// game's pooled NoteCube later, so a clone made before that (plain stock
+    /// shape, same reference) must be discarded on reuse instead of throwing
+    /// the old look. A missing/empty fingerprint is treated as stale.
     /// </summary>
     private static bool StampedForCurrentPrefab(GameObject pooled)
     {
         if (_noteVisualPrefab == null)
             return false;
-        if (!_notePoolStamp.TryGetValue(pooled.GetInstanceID(), out var stamp))
+        var src = StructureFingerprint(_noteVisualPrefab);
+        if (src == null)
             return false;
-        return ReferenceEquals(stamp, _noteVisualPrefab);
+        return string.Equals(src, StructureFingerprint(pooled), System.StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1045,11 +1181,11 @@ internal static class ProjectileThrower
     {
         try
         {
-            _noteVisualPrefab = null;
+            ClearPrefabSource();
             ScanForNotePrefab();
             if (_noteVisualPrefab == null || _prefabIsAssetTemplate)
             {
-                _noteVisualPrefab = null;
+                ClearPrefabSource();
                 return CreateCube();
             }
 
@@ -1060,21 +1196,18 @@ internal static class ProjectileThrower
             foreach (var col in go.GetComponentsInChildren<Collider>(true))
                 Object.Destroy(col);
             go.SetActive(true);
-            _notePoolStamp[go.GetInstanceID()] = _noteVisualPrefab;
 
             if (!ApplyNoteVisuals(go, colorIndex))
             {
                 Object.Destroy(go);
-                _notePoolStamp.Remove(go.GetInstanceID());
-                _noteVisualPrefab = null;
+                ClearPrefabSource();
                 return CreateCube();
             }
 
             if (go.GetComponentInChildren<MeshRenderer>(true) == null)
             {
                 Object.Destroy(go);
-                _notePoolStamp.Remove(go.GetInstanceID());
-                _noteVisualPrefab = null;
+                ClearPrefabSource();
                 return CreateCube();
             }
 
@@ -1083,8 +1216,7 @@ internal static class ProjectileThrower
         catch (System.Exception ex)
         {
             Plugin.Log.Warn($"Projectile visuals: live-source rebuild failed ({ex.Message}); using cube fallback.");
-            if (_noteVisualPrefab != null)
-                _noteVisualPrefab = null;
+            ClearPrefabSource();
             return CreateCube();
         }
     }
@@ -1246,6 +1378,36 @@ internal static class ProjectileThrower
                 return;
             }
 
+            // FAMILY GATE: once the throw source is a Vivify-decorated subtree,
+            // only capture from notes of the SAME family (have a 'Base' body).
+            // Maps like "The Plane That Never Lands" spawn shadow-decal notes
+            // ('Custom Note Shadow *') whose only visible renderer is the shadow
+            // plane - a decoy that scores higher than the real body in
+            // FindPreferredNoteBlockTransform. Capturing one such note for a side
+            // poisons that side's snapshot forever (no 'Base'), and every throw
+            // then paints the Vivify-shaped clone with family-less materials.
+            // Blocked overwrites keep the last family-matching capture instead.
+            if (_noteVisualPrefab != null && SubtreeHasVivifyBase(_noteVisualPrefab))
+            {
+                var familyMatch = false;
+                foreach (var (_, _, rname) in renderers)
+                {
+                    if (rname == "Base")
+                    {
+                        familyMatch = true;
+                        break;
+                    }
+                }
+                if (!familyMatch)
+                {
+                    NoteCosmeticController.VerboseLog(
+                        $"Projectile visuals: keeping color {(colorIndex == 0 ? "A" : "B")} capture - " +
+                        $"'{controller.name}/{block.name}' is a shadow (family-less) note and the " +
+                        $"throw source is Vivify.");
+                    return;
+                }
+            }
+
             var blockMpb = new MaterialPropertyBlock();
             block.GetPropertyBlock(blockMpb);
 
@@ -1312,6 +1474,22 @@ internal static class ProjectileThrower
     // frame, so an unlucky capture freezes a white body). Only such
     // blank-white renderers get the scheme color forced onto them; black bodies
     // (NoteTweaks flat-black preset) and already-colored bodies stay untouched.
+    // Compact per-throw renderer summary (name=enabled@material[, ...]) for the
+    // thrown clone. When a side renders invisible, this shows exactly which
+    // renderers ended up off / with which material - the snapshot-only variable
+    // that per-side captures introduce.
+    private static string SummarizeRenderers(GameObject go)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        foreach (var r in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (r.sharedMaterial == null || r.GetComponent<MeshFilter>()?.sharedMesh == null)
+                continue;
+            parts.Add(r.gameObject.name + "=" + (r.enabled ? "on" : "off") + "@" + r.sharedMaterial.name);
+        }
+        return string.Join(", ", parts);
+    }
+
     private static bool IsBlankWhite(Color color)
     {
         var max = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
@@ -1329,9 +1507,7 @@ internal static class ProjectileThrower
                 continue;
             var isBody = (name.IndexOf("NoteCube", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 || name == "Base"
-                || (name.IndexOf("Arrow", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                || (name.IndexOf("Glow", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                || (name.IndexOf("Dot", System.StringComparison.OrdinalIgnoreCase) >= 0);
+                || (name.IndexOf("Glow", System.StringComparison.OrdinalIgnoreCase) >= 0);
             if (!isBody)
                 continue;
             var mat = renderer.sharedMaterial;
@@ -1436,7 +1612,7 @@ internal static class ProjectileThrower
         // built from a source whose own materials lagged the capture (e.g. a
         // stock body still on NoteHD while the live note already runs the
         // NoteTweaks preset).
-        var snapshot = _liveRenderers[colorIndex] ?? _liveRenderers[1 - colorIndex];
+        var snapshot = SelectFamilySnapshot(colorIndex, out var rescuedFamily);
         if (snapshot != null && snapshot.Count > 0)
         {
             var cloneRenderers = new List<MeshRenderer>();
@@ -1457,6 +1633,8 @@ internal static class ProjectileThrower
                 if (SnapshotHasVivifyBody(snapshot))
                 {
                     ApplyVivifySemanticPaint(go, colorIndex, snapshot);
+                    if (rescuedFamily)
+                        OverrideSchemeColors(go, colorIndex);
                     return true;
                 }
 
@@ -1473,6 +1651,75 @@ internal static class ProjectileThrower
                         $"Projectile visuals: clone '{go.name}' missing outline renderer; " +
                         $"requesting re-build from live source (color {(colorIndex == 0 ? "A" : "B")}).");
                     return false;
+                }
+
+                // Identity-based pairing: paint each clone renderer from the
+                // snapshot entry with the SAME renderer name instead of by list
+                // position. Models whose children are re-parented between pooled
+                // notes (the game reuses NoteCube GOs) or whose clone shape
+                // differs from the captured note must not be painted by position
+                // - the same "identity over position" rule behind the bomb
+                // reference-based restore.
+                var snapshotByName = new Dictionary<string, (Material mat, MaterialPropertyBlock mpb)>();
+                foreach (var entry in snapshot)
+                {
+                    if (entry.name != null && !snapshotByName.ContainsKey(entry.name))
+                        snapshotByName[entry.name] = (entry.mat, entry.mpb);
+                }
+                var matchedCount = 0;
+                var painted = new HashSet<MeshRenderer>();
+                foreach (var renderer in cloneRenderers)
+                {
+                    (Material mat, MaterialPropertyBlock mpb) named;
+                    if (snapshotByName.TryGetValue(renderer.gameObject.name, out named))
+                    {
+                        renderer.sharedMaterial = new Material(named.mat);
+                        renderer.SetPropertyBlock(named.mpb);
+                        painted.Add(renderer);
+                        matchedCount++;
+                    }
+                    else if (renderer.transform == go.transform
+                        && snapshotByName.TryGetValue("NoteCube", out named))
+                    {
+                        // The frozen source's body renderer lives ON the subtree
+                        // root (the game's 'NoteCube' GO) and that root is renamed
+                        // when the pool clone is tagged 'StreamReactiveProjectile-*',
+                        // so its GO name no longer matches the snapshot. Match it
+                        // by being the clone root against the body entry instead.
+                        renderer.sharedMaterial = new Material(named.mat);
+                        renderer.SetPropertyBlock(named.mpb);
+                        painted.Add(renderer);
+                        matchedCount++;
+                    }
+                }
+
+                if (matchedCount > 0)
+                {
+                    // Clone renderers with no snapshot entry (a clone shape richer
+                    // than the captured note) reuse the last block so nothing
+                    // renders with a flat stock material - same guard the
+                    // positional fallback keeps.
+                    if (matchedCount < cloneRenderers.Count)
+                    {
+                        var (lastMat, lastMpb, _) = snapshot[snapshot.Count - 1];
+                        foreach (var renderer in cloneRenderers)
+                        {
+                            if (!painted.Contains(renderer))
+                            {
+                                renderer.sharedMaterial = new Material(lastMat);
+                                renderer.SetPropertyBlock(lastMpb);
+                            }
+                        }
+                    }
+
+                    ForceSchemeColorIfBlank(go, colorIndex);
+                    NormalizeArrowDotVisibility(go);
+                    if (rescuedFamily)
+                        OverrideSchemeColors(go, colorIndex);
+                    NoteCosmeticController.VerboseLog(
+                        $"Projectile visuals: applied to '{go.name}' via name-matched replay " +
+                        $"color={(colorIndex == 0 ? "A" : "B")} [{SummarizeRenderers(go)}].");
+                    return true;
                 }
 
                 var n = Mathf.Min(cloneRenderers.Count, snapshot.Count);
@@ -1500,6 +1747,8 @@ internal static class ProjectileThrower
 
                 ForceSchemeColorIfBlank(go, colorIndex);
                 NormalizeArrowDotVisibility(go);
+                if (rescuedFamily)
+                    OverrideSchemeColors(go, colorIndex);
                 NoteCosmeticController.VerboseLog(
                     $"Projectile visuals: applied to '{go.name}' via per-renderer replay " +
                     $"color={(colorIndex == 0 ? "A" : "B")}.");
@@ -1622,11 +1871,23 @@ if (blockMpb != null && blockRenderer != null)
     }
 
     // True if the given clone already contains an outline renderer child.
+    // The renderer can carry the outline look two ways: a child explicitly
+    // named '...Outline...' (NoteTweaks) or a mod-mounted child ('Cube'/'Arrow'
+    // under e.g. 'WhiteNoteArrow(Clone)') whose MATERIAL is an outline shell
+    // like 'Note Color Outline Black'. snapshotHasOutline matches on the
+    // material name, so this MUST match the same way - otherwise maps whose
+    // preset material is named '...Outline...' but whose renderer GO is named
+    // 'Cube' get falsely flagged "missing outline renderer" on every throw,
+    // triggering a full live-source rebuild per projectile (and finally the
+    // cube fallback) even though the clone carries the renderer.
     private static bool cloneHasOutline(GameObject go)
     {
         foreach (var r in go.GetComponentsInChildren<Renderer>(true))
         {
             if (IsOutlineRenderer(r.gameObject))
+                return true;
+            if (r.sharedMaterial != null
+                && r.sharedMaterial.name.IndexOf("Outline", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
         }
         return false;
@@ -1664,6 +1925,146 @@ if (blockMpb != null && blockRenderer != null)
                 return true;
         }
         return false;
+    }
+
+    // True when two Vivify note subtrees belong to DIFFERENT custom families.
+    // Vivify maps like "you" swap the note model per section (Reflective ->
+    // Glass -> Drop) by re-parenting a different custom body/arrow under the
+    // SAME pooled NoteCube. The family identity shows up in the 'Base' body's
+    // material name (instanced names normalize to e.g. 'ReflectiveNote' vs
+    // 'GlassNote'); if the material is inconclusive, the structural fingerprint
+    // (renderer names + meshes) decides. The frozen throw source is a
+    // snapshot-clone locked to its birth moment, and throws clone that shape -
+    // so when the field family changes mid-map, TryUpgradePrefabFromLiveNote
+    // must re-freeze from the CURRENT family or throws keep the old shape.
+    private static bool VivifyFamilyChanged(GameObject a, GameObject b)
+    {
+        var aBase = FindFirstRendererNamed(a, "Base");
+        var bBase = FindFirstRendererNamed(b, "Base");
+        if (aBase != null && bBase != null
+            && aBase.sharedMaterial != null && bBase.sharedMaterial != null)
+        {
+            var aName = NormalizeMaterialName(aBase.sharedMaterial.name);
+            var bName = NormalizeMaterialName(bBase.sharedMaterial.name);
+            if (!string.Equals(aName, bName, System.StringComparison.Ordinal))
+                return true;
+        }
+        var aFp = StructureFingerprint(a);
+        var bFp = StructureFingerprint(b);
+        return aFp != null && bFp != null
+            && !string.Equals(aFp, bFp, System.StringComparison.Ordinal);
+    }
+
+    // Normalized 'Base' body material identity of a Vivify note subtree, or null
+    // for stock/ordinary notes (helpers stay safe on destroyed live GOs - notes
+    // are recycled constantly, so a cached candidate may dangle).
+    private static string? VivifyFamilyName(GameObject root)
+    {
+        if (root == null)
+            return null;
+        try
+        {
+            var baseRenderer = FindFirstRendererNamed(root, "Base");
+            if (baseRenderer?.sharedMaterial != null)
+                return NormalizeMaterialName(baseRenderer.sharedMaterial.name);
+        }
+        catch (System.Exception)
+        {
+            // Destroyed/recycled candidate mid-scan; treat as unknown family.
+        }
+        return null;
+    }
+
+    private static MeshRenderer? FindFirstRendererNamed(GameObject root, string name)
+    {
+        if (root == null)
+            return null;
+        foreach (var r in root.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (r.gameObject.name == name)
+                return r;
+        }
+        return null;
+    }
+
+    private static string NormalizeMaterialName(string matName)
+    {
+        var idx = matName.IndexOf(" (Instance)", System.StringComparison.Ordinal);
+        return idx >= 0 ? matName.Substring(0, idx) : matName;
+    }
+
+    // Picks the live-note snapshot that matches the throw source's VISUAL
+    // FAMILY (Vivify bodies carry a 'Base' renderer; stock/shadow notes do
+    // not). Maps like "The Plane That Never Lands" spawn both families and a
+    // plain-stock capture for one color while the frozen source is Vivify -
+    // painting a Vivify-shaped clone from a family-less snapshot yields an
+    // invisible body. When the request side's own snapshot mismatches the
+    // source family, the other side's matching snapshot rescues the throw
+    // (rescuedFamily=true may then have the scheme color forced). Only when
+    // neither side matches does it fall back to the requested side (today's
+    // behavior) so no capture at all still degrades gracefully.
+    private static List<(Material mat, MaterialPropertyBlock mpb, string name)>? SelectFamilySnapshot(
+        int colorIndex, out bool rescuedFamily)
+    {
+        rescuedFamily = false;
+        var prefabVivify = _noteVisualPrefab != null && SubtreeHasVivifyBase(_noteVisualPrefab);
+        var own = _liveRenderers[colorIndex];
+        var other = _liveRenderers[1 - colorIndex];
+        if (own != null && own.Count > 0 && SnapshotHasVivifyBody(own) == prefabVivify)
+            return own;
+        if (other != null && other.Count > 0 && SnapshotHasVivifyBody(other) == prefabVivify)
+        {
+            rescuedFamily = true;
+            NoteCosmeticController.VerboseLog(
+                $"Projectile visuals: color {(colorIndex == 0 ? "A" : "B")} using other-side snapshot " +
+                $"family rescue (source is {(prefabVivify ? "Vivify" : "stock")}).");
+            return other;
+        }
+        return own ?? other;
+    }
+
+    // A rescued (cross-side) snapshot carries the OTHER color's property
+    // blocks. These Vivify materials share the same shader and their tint is
+    // decided per throw, so force every blank-white color property to this
+    // throw's scheme side instead of leaving the rescue side's tint.
+    private static void OverrideSchemeColors(GameObject go, int colorIndex)
+    {
+        var color = colorIndex == 0 ? _noteColorA : _noteColorB;
+        foreach (var renderer in go.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            var mat = renderer.sharedMaterial;
+            if (mat == null)
+                continue;
+            var mpb = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(mpb);
+            var shader = mat.shader;
+            var colorProps = new System.Collections.Generic.HashSet<string>();
+            var changed = false;
+            for (var i = 0; i < shader.GetPropertyCount(); i++)
+            {
+                if (shader.GetPropertyType(i) != UnityEngine.Rendering.ShaderPropertyType.Color)
+                    continue;
+                var propName = shader.GetPropertyName(i);
+                colorProps.Add(propName);
+                if (IsBlankWhite(mpb.HasProperty(propName) ? mpb.GetColor(propName) : mat.GetColor(propName)))
+                {
+                    mpb.SetColor(propName, color);
+                    changed = true;
+                }
+            }
+            foreach (var propName in NoteColorProperties)
+            {
+                if (colorProps.Contains(propName) || !mat.HasProperty(propName))
+                    continue;
+                if (IsBlankWhite(mat.GetColor(propName)))
+                {
+                    mpb.SetColor(propName, color);
+                    changed = true;
+                }
+            }
+            if (changed)
+                renderer.SetPropertyBlock(mpb);
+        }
     }
 
     // Vivify maps mount the custom body ('Base') and custom arrow as separate

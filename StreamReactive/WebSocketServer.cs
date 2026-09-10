@@ -65,6 +65,9 @@ internal sealed class WebSocketServer : IDisposable
                 case "/generator":
                     html = GetResourceHtml("StreamReactive.Resources.generator.html", Port);
                     break;
+                case "/debug":
+                    html = GetResourceHtml("StreamReactive.Resources.debug.html", Port);
+                    break;
                 default:
                     e.Response.StatusCode = 404;
                     e.Response.WriteContent(Encoding.UTF8.GetBytes("Not Found"));

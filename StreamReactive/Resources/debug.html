@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StreamReactive Debug</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; padding: 24px; }
+  h1 { font-size: 1.6rem; margin-bottom: 6px; }
+  .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9rem; }
+  .status { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; margin-bottom: 20px; }
+  .connected { background: #1b5e20; color: #81c784; }
+  .disconnected { background: #b71c1c; color: #ef9a9a; }
+  .card { background: #16213e; border-radius: 12px; padding: 18px; margin-bottom: 16px; }
+  .card h2 { font-size: 1.1rem; margin-bottom: 12px; color: #7ec8e3; }
+  nav { margin-bottom: 20px; }
+  nav a { display: inline-block; padding: 8px 16px; border-radius: 8px 8px 0 0; color: #aaa; text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+  nav a:hover { color: #eee; }
+  nav a.active { background: #16213e; color: #7ec8e3; }
+  .btn { padding: 10px 20px; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; color: #fff; transition: filter .15s; background: #78909c; }
+  .btn:hover { filter: brightness(1.2); }
+  .btn:active { filter: brightness(0.85); }
+  .log { background: #0d1b2a; border-radius: 8px; padding: 12px; max-height: 180px; overflow-y: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.8rem; }
+  .log-entry { padding: 2px 0; border-bottom: 1px solid #1a1a2e; }
+  .log-entry:last-child { border-bottom: none; }
+  .log-time { color: #666; }
+  .log-ok { color: #81c784; }
+  .log-err { color: #ef9a9a; }
+</style>
+</head>
+<body>
+<nav>
+  <a href="/">Test Dashboard</a>
+  <a href="/generator">Message Generator</a>
+  <a href="/debug">Debug</a>
+</nav>
+<h1>StreamReactive Debug</h1>
+<p class="subtitle">Diagnostic tools for troubleshooting stream effects (visible only when Verbose Logging is enabled)</p>
+<div id="statusBadge" class="status disconnected">Disconnected</div>
+
+<div class="card">
+  <h2>Scene Dump</h2>
+  <p class="subtitle">Writes the full note hierarchy plus bomb-tracking state to <code>UserData/StreamReactive/scene_dump.txt</code> so broken maps can be compared against working ones.</p>
+  <button class="btn" onclick="sendDumpScene()">Dump Scene</button>
+</div>
+
+<div class="card">
+  <h2>Event Log</h2>
+  <div id="log" class="log"></div>
+</div>
+
+<script>
+const port = PORT_PLACEHOLDER;
+let ws = null;
+
+function connect() {
+  if (ws && ws.readyState === WebSocket.OPEN) return;
+  const url = 'ws://' + location.hostname + ':' + port + '/stream';
+  ws = new WebSocket(url);
+  ws.onopen = function() {
+    document.getElementById('statusBadge').className = 'status connected';
+    document.getElementById('statusBadge').textContent = 'Connected';
+    log('Connected to mod', 'ok');
+  };
+  ws.onclose = function() {
+    document.getElementById('statusBadge').className = 'status disconnected';
+    document.getElementById('statusBadge').textContent = 'Reconnecting...';
+    setTimeout(connect, 500);
+  };
+  ws.onerror = function() {
+    log('WebSocket error', 'err');
+  };
+}
+
+function sendDumpScene() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'dump_scene' }));
+    log('Scene dump requested', 'ok');
+  } else {
+    log('Not connected', 'err');
+  }
+}
+
+function log(msg, cls) {
+  var el = document.getElementById('log');
+  var div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = '<span class="log-time">[' + new Date().toLocaleTimeString() + ']</span> <span class="log-' + cls + '">' + msg + '</span>';
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+document.querySelectorAll('nav a').forEach(function(a) {
+  if (a.getAttribute('href') === '/debug') a.classList.add('active');
+});
+
+connect();
+</script>
+</body>
+</html>
