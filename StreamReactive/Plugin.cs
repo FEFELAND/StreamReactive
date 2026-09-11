@@ -698,7 +698,7 @@ public class Plugin
         {
             instance._heldFlashbangs.Add(1);
         }
-        Log.Debug($"Flashbang deferred (paused/protected); held queue now {instance._heldFlashbangs.Count}.");
+        NoteCosmeticController.VerboseLog($"Flashbang deferred (paused/protected); held queue now {instance._heldFlashbangs.Count}.");
         return true;
     }
 
@@ -768,7 +768,7 @@ public class Plugin
         }
 
         if (!IsInGame)
-            Log.Debug($"Stream event received while not in game; will queue for next map: {type} from {user}");
+            NoteCosmeticController.VerboseLog($"Stream event received while not in game; will queue for next map: {type} from {user}");
 
         // Apply configured colors (override any color from the WS payload so the
         // UI color pickers are what actually drive each event type). Bombs are the
@@ -799,7 +799,7 @@ public class Plugin
         else if (!isBomb)
             color ??= cfg.BitsColor;
 
-        Log.Debug($"Stream event: type={type}, user={user}, amount={amount}, color={color}");
+        NoteCosmeticController.VerboseLog($"Stream event: type={type}, user={user}, amount={amount}, color={color}");
 
         Color resolvedColor = color ?? Color.white;
 
@@ -1033,7 +1033,7 @@ public class Plugin
         // matching the transient-event suppression. Emotes have no queue to hold.
         if (IsMapProtectionActive())
         {
-            Log.Debug($"Emote suppressed by map protection: {emoteCode} from {user}");
+            NoteCosmeticController.VerboseLog($"Emote suppressed by map protection: {emoteCode} from {user}");
             return;
         }
 
@@ -1043,7 +1043,7 @@ public class Plugin
         if (cfg.EmoteRainEnabled)
             SpawnEmoteRain(emoteCode, tex, cfg.EmoteRainIntensity);
 
-        Log.Debug($"Emote '{emoteCode}' from '{user}' — dispatched.");
+        NoteCosmeticController.VerboseLog($"Emote '{emoteCode}' from '{user}' — dispatched.");
     }
 
     private void SpawnEmoteRain(string emoteCode, Texture2D tex, int count)

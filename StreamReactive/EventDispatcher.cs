@@ -81,7 +81,7 @@ internal static class EventDispatcher
         // truly inert. The WebSocket stays open so it can always be re-enabled.
         if (cfg?.Enabled == false)
         {
-            Plugin.Log.Debug($"Disabled: ignoring {type}.");
+            NoteCosmeticController.VerboseLog($"Disabled: ignoring {type}.");
             return;
         }
 
@@ -110,7 +110,7 @@ internal static class EventDispatcher
         {
             if (cfg?.Paused == true || Plugin.IsMapProtectionActive())
             {
-                Plugin.Log.Debug($"Paused: ignoring {type}.");
+                NoteCosmeticController.VerboseLog($"Paused: ignoring {type}.");
                 return;
             }
             var projData = root["data"] as JObject ?? root;
@@ -141,7 +141,7 @@ internal static class EventDispatcher
         {
             if (cfg?.Paused == true || Plugin.IsMapProtectionActive())
             {
-                Plugin.Log.Debug($"Paused: ignoring {type}.");
+                NoteCosmeticController.VerboseLog($"Paused: ignoring {type}.");
                 return;
             }
             var throwData = root["data"] as JObject ?? root;
@@ -169,7 +169,7 @@ internal static class EventDispatcher
                 throwAirTime = GetNullableFloat(throwData, "arc", "time", "airTime");
 
             ProjectileThrower.Throw(throwCount, throwScale, throwOrigin, throwAirTime);
-            Plugin.Log.Debug($"Throw event: launching {Mathf.Max(1, throwCount)} projectile(s).");
+            NoteCosmeticController.VerboseLog($"Throw event: launching {Mathf.Max(1, throwCount)} projectile(s).");
             return;
         }
 
@@ -177,7 +177,7 @@ internal static class EventDispatcher
         {
             if (cfg?.Paused == true || Plugin.IsMapProtectionActive())
             {
-                Plugin.Log.Debug($"Paused: ignoring {type}.");
+                NoteCosmeticController.VerboseLog($"Paused: ignoring {type}.");
                 return;
             }
             var animData = root["data"] as JObject ?? root;
@@ -193,11 +193,11 @@ internal static class EventDispatcher
             if (string.Equals(animAction, "lurk", StringComparison.OrdinalIgnoreCase))
             {
                 CubeAnimationController.PlayLurk(animUser, animScale);
-                Plugin.Log.Info($"Cube animation: {animUser} lurks.");
+                NoteCosmeticController.VerboseLog($"Cube animation: {animUser} lurks.");
             }
             else
             {
-                Plugin.Log.Debug($"Cube animation: unknown action '{animAction}' (only 'lurk' is implemented).");
+                NoteCosmeticController.VerboseLog($"Cube animation: unknown action '{animAction}' (only 'lurk' is implemented).");
             }
             return;
         }

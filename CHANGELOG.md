@@ -1,9 +1,12 @@
+# 1.1.5
+- Dissolved (invisible) notes in noodle maps should no longer have effects applied to them. Like the Paradigm gimmick
+
 # 1.1.4
 ### Vivify saga part 2
 - Vastly improved vivify compatibility.
 - Bomb event should now work in pretty much any map.
 - Throw event still has a little bit less of a success rate but it is MUCH better than before.
-- fruther testing required and probably some more tweaks for edge cases. A certain [Kitchen](https://beatsaver.com/maps/43a4a) map is not fully playing nice.
+- Further testing required and probably some more tweaks for edge cases. A certain [Kitchen](https://beatsaver.com/maps/43a4a) map is not fully playing nice.
 - [End Times](https://beatsaver.com/maps/43a24) have been tamed though! (from what I can see/test)
 
 # 1.1.3

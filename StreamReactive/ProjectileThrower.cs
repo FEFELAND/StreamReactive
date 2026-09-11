@@ -636,7 +636,7 @@ internal static class ProjectileThrower
         var cfg = PluginConfig.Instance;
         if (cfg == null || !cfg.CapsuleGuardEnabled)
         {
-            Plugin.Log.Debug("Throw ignored: guard capsule is disabled.");
+            NoteCosmeticController.VerboseLog("Throw ignored: guard capsule is disabled.");
             return;
         }
 
@@ -1485,9 +1485,32 @@ internal static class ProjectileThrower
         {
             if (r.sharedMaterial == null || r.GetComponent<MeshFilter>()?.sharedMesh == null)
                 continue;
-            parts.Add(r.gameObject.name + "=" + (r.enabled ? "on" : "off") + "@" + r.sharedMaterial.name);
+            parts.Add(r.gameObject.name + "=" + (r.enabled ? "on" : "off") + "@" + r.sharedMaterial.name +
+                " c=" + DescribeColor(r));
         }
         return string.Join(", ", parts);
+    }
+
+    // Prints the first color property worth reporting for a renderer (from its
+    // property block, falling back to the material), so per-side MPB differences
+    // - e.g. a body captured mid-frame at low alpha - become visible in the log.
+    private static string DescribeColor(MeshRenderer r)
+    {
+        var mpb = new MaterialPropertyBlock();
+        r.GetPropertyBlock(mpb);
+        foreach (var propName in NoteColorProperties)
+        {
+            Color c;
+            if (mpb.HasProperty(propName))
+                c = mpb.GetColor(propName);
+            else if (r.sharedMaterial != null && r.sharedMaterial.HasProperty(propName))
+                c = r.sharedMaterial.GetColor(propName);
+            else
+                continue;
+            return propName + "=" + c.r.ToString("F2") + "/" + c.g.ToString("F2") + "/" +
+                c.b.ToString("F2") + "/a" + c.a.ToString("F2");
+        }
+        return "nocolor";
     }
 
     private static bool IsBlankWhite(Color color)
@@ -1495,6 +1518,18 @@ internal static class ProjectileThrower
         var max = Mathf.Max(color.r, Mathf.Max(color.g, color.b));
         var min = Mathf.Min(color.r, Mathf.Min(color.g, color.b));
         return color.a > 0.001f && max > 0.75f && (max - min) < 0.15f;
+    }
+
+    // A captured body block needs the throw's scheme color when it is either an
+    // uncolored template (blank white) or a mid-appearance fade - notes that
+    // spawn with an entrance animation (kitchen-gun, NoteTweaks fades) get
+    // snapshot during the fade, leaving the thrown clone dim/invisible while the
+    // other side (captured fully opaque) renders fine. A flat-black body preset
+    // keeps alpha=1, so only genuinely transparent captures are repainted to the
+    // opaque scheme color.
+    private static bool NeedsSchemeColor(Color color)
+    {
+        return IsBlankWhite(color) || color.a < 0.9f;
     }
 
     private static void ForceSchemeColorIfBlank(GameObject go, int colorIndex)
@@ -1505,9 +1540,11 @@ internal static class ProjectileThrower
             var name = renderer.gameObject.name;
             if (name.IndexOf("Outline", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 continue;
-            var isBody = (name.IndexOf("NoteCube", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            var isBody = renderer.transform == go.transform
+                || (name.IndexOf("NoteCube", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 || name == "Base"
-                || (name.IndexOf("Glow", System.StringComparison.OrdinalIgnoreCase) >= 0);
+                || (name.IndexOf("Glow", System.StringComparison.OrdinalIgnoreCase) >= 0
+                    && name.IndexOf("Arrow", System.StringComparison.OrdinalIgnoreCase) < 0);
             if (!isBody)
                 continue;
             var mat = renderer.sharedMaterial;
@@ -1524,7 +1561,7 @@ internal static class ProjectileThrower
                     continue;
                 var propName = shader.GetPropertyName(i);
                 colorProps.Add(propName);
-                if (IsBlankWhite(mpb.HasProperty(propName) ? mpb.GetColor(propName) : mat.GetColor(propName)))
+                if (NeedsSchemeColor(mpb.HasProperty(propName) ? mpb.GetColor(propName) : mat.GetColor(propName)))
                 {
                     mpb.SetColor(propName, color);
                     changed = true;
@@ -1534,7 +1571,7 @@ internal static class ProjectileThrower
             {
                 if (colorProps.Contains(propName) || !mat.HasProperty(propName))
                     continue;
-                if (IsBlankWhite(mat.GetColor(propName)))
+                if (NeedsSchemeColor(mat.GetColor(propName)))
                 {
                     mpb.SetColor(propName, color);
                     changed = true;
@@ -2682,17 +2719,6 @@ internal sealed class ProjectileCube : MonoBehaviour
         }
 
         _spinSpeed *= 1f - 3f * dt;
-    }
-
-    private static Vector3 ClosestPointOnSegment(Vector3 a, Vector3 b, Vector3 point)
-    {
-        var ab = b - a;
-        var lengthSqr = ab.sqrMagnitude;
-        if (lengthSqr < 0.000001f)
-            return a;
-
-        var t = Mathf.Clamp01(Vector3.Dot(point - a, ab) / lengthSqr);
-        return a + ab * t;
     }
 
     private static float MaxAbsScale(Transform t)

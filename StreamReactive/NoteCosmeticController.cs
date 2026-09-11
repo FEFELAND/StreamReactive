@@ -418,7 +418,7 @@ internal static class NoteCosmeticController
         {
             _eventQueue.Add(evt);
         }
-        Plugin.Log.Debug($"QueueStreamEvent: queued {evt.Type} user={evt.User} notes={evt.NotesRemaining} text={evt.TextRemaining} bombVisual={evt.BombVisualsRemaining} display={evt.SubDisplayText}");
+        VerboseLog($"QueueStreamEvent: queued {evt.Type} user={evt.User} notes={evt.NotesRemaining} text={evt.TextRemaining} bombVisual={evt.BombVisualsRemaining} display={evt.SubDisplayText}");
     }
 
     internal static void ProcessPendingStreamEvents()
@@ -530,12 +530,11 @@ internal static class NoteCosmeticController
         if (evt.Type is StreamEventType.Sub or StreamEventType.Raid || !string.IsNullOrEmpty(evt.SubDisplayText))
             SpawnSubDisplay(evt.SubDisplayText, evt.Color, evt.SubTextSize, evt.SubTrails, evt);
         VerboseLog($"StartEvent: {evt.Type} user={evt.User} notes={evt.NotesRemaining} bombVisual={evt.BombVisualsRemaining} bombTotal={evt.BombVisualsTotal} display={evt.SubDisplayText}");
-        Plugin.Log.Debug($"StartEvent: {evt.Type} user={evt.User} notes={evt.NotesRemaining} bombVisual={evt.BombVisualsRemaining} display={evt.SubDisplayText}");
     }
 
     private static void FinalizeEvent(StreamEvent evt)
     {
-        Plugin.Log.Debug($"FinalizeEvent: {evt.Type} user={evt.User}");
+        VerboseLog($"FinalizeEvent: {evt.Type} user={evt.User}");
         if (_sustainOwner == evt)
         {
             _sustainOwner = null;
@@ -564,13 +563,15 @@ internal static class NoteCosmeticController
 
         // During sub sustain window, apply trail and outline to every note so the
         // effect stays visible for the whole window, not just the notes the event
-        // explicitly claimed.
+        // explicitly claimed. NE-dissolved (invisible) notes are left alone so the
+        // sustain never reveals them.
         if (!skipBombNote && Time.time < _subSustainEndTime)
         {
-            bool trailsActive = cfg.SubTrailEnabled && _subSustainTrailEnabled;
+            bool dissHidden = NoteIsNeDissolved(note);
+            bool trailsActive = cfg.SubTrailEnabled && _subSustainTrailEnabled && !dissHidden;
             if (!_activeSubTrails.ContainsKey(note) && trailsActive)
                 SpawnSubTrail(note, _subSustainColor);
-            if (!_activeOutlineParticles.ContainsKey(note))
+            if (!_activeOutlineParticles.ContainsKey(note) && !dissHidden)
                 SpawnNoteOutline(note, _subSustainColor);
         }
 
@@ -607,6 +608,18 @@ internal static class NoteCosmeticController
         if (FindOwningEvent(note) != null)
             return;
 
+        // Never let any effect claim a note NE dissolves to invisible: attaching
+        // a bomb, particles, outline or text would reveal a note the map intends
+        // the player to swing through unseen. This guards every event type that
+        // turns notes into effects (bombs, bits, subs, raids, etc.). The check is
+        // data-driven (NE customData), so it is already correct at spawn time -
+        // unlike renderer state, which Vivify may not have applied yet.
+        if (NoteIsNeDissolved(note))
+        {
+            VerboseLog($"TryAssignNoteToEvent: note {note.GetInstanceID()} is NE-dissolved (invisible) - not claimed by any effect");
+            return;
+        }
+
         bool isRealBomb = note is BombNoteController;
 
         // 1. Bomb visual claim takes priority: an active bomb event turns this
@@ -619,7 +632,7 @@ internal static class NoteCosmeticController
                 if (!evt.HasBombVisual || evt.BombVisualsRemaining <= 0)
                     continue;
 
-                VerboseLog($"TryAssignNoteToEvent: BOMB claim note={note.GetInstanceID()}, BombVisualsRemaining={evt.BombVisualsRemaining}, NotesRemaining={evt.NotesRemaining}");
+                VerboseLog($"TryAssignNoteToEvent: BOMB claim note={note.GetInstanceID()} type={note.GetType().Name}, activeSelf={note.gameObject.activeSelf}, pos={note.transform.position}, BombVisualsRemaining={evt.BombVisualsRemaining}, NotesRemaining={evt.NotesRemaining}");
                 evt.BombVisualsRemaining--;
                 if (evt.NotesRemaining > 0) evt.NotesRemaining--;
                 _bombedNotes.Add(note);
@@ -733,10 +746,7 @@ internal static class NoteCosmeticController
             {
                 evt.NoteParticles.Remove(note);
                 SpawnParticlesOnNote(note, entry.Color, entry.Config, entry.Rainbow);
-                // Always-on trace (not gated by VerboseLogging): proves the cut
-                // reached the particle spawner, so a missing explosion can be
-                // separated from a missed cut event when diagnosing.
-                Plugin.Log.Debug($"ProcessNoteAtCut: {evt.Type} note {note.GetInstanceID()} cut -> burst count={entry.Config.Count} at {note.transform.position}");
+                VerboseLog($"ProcessNoteAtCut: {evt.Type} note {note.GetInstanceID()} cut -> burst count={entry.Config.Count} at {note.transform.position}");
             }
             if (evt.NoteTexts.TryGetValue(note, out var text))
             {
@@ -1920,6 +1930,125 @@ internal static class NoteCosmeticController
         }
     }
 
+    // True when the note currently has no visible body renderer in a live
+    // scene. Noodle/Vivify maps animate notes invisible via Renderer.enabled
+    // toggles, deactivated child models, or scale-to-zero animation; planting
+    // the bomb on such a note would leave a visible bomb floating in empty air.
+    // Pooled asset templates aren't scene-attached so they stay eligible (they
+    // report every child inactive per their material bank).
+    private static bool NoteHasNoVisibleBody(NoteController note)
+    {
+        if (note == null || note.gameObject == null)
+            return true;
+
+        var scene = note.gameObject.scene;
+        var inLiveScene = scene.IsValid() && scene.isLoaded;
+
+        if (inLiveScene && !note.gameObject.activeInHierarchy)
+            return true;
+
+        // Scale-to-zero animation hides the note without touching renderers.
+        var scale = note.transform.lossyScale;
+        if (scale.x * scale.x + scale.y * scale.y + scale.z * scale.z < 1e-6f)
+            return true;
+
+        foreach (var renderer in note.GetComponentsInChildren<MeshRenderer>(true))
+        {
+            if (renderer == null) continue;
+            if (inLiveScene && (!renderer.gameObject.activeInHierarchy || !renderer.enabled))
+                continue;
+            var mf = renderer.GetComponent<MeshFilter>();
+            if (mf == null || mf.sharedMesh == null) continue;
+            if (renderer.sharedMaterial == null) continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    // Noodle Extensions stores the note's raw JSON customData on the runtime
+    // NoteData subclass (CustomNoteData via a hidden 'customData' property).
+    // Maps hide real hit notes with a "dissolve" animation (animation.dissolve
+    // keyframes reaching 1 = fully dissolved). The renderer stays enabled, so
+    // NoteHasNoVisibleBody can't see it, but by the time the note reaches the
+    // player it is invisible. Plant a bomb on that and the player sees a
+    // floating bomb where they must swing through air.
+    private static bool NoteIsNeDissolved(NoteController note)
+    {
+        var data = note?.noteData;
+        if (data == null)
+            return false;
+        try
+        {
+            var t = data.GetType();
+            if (t.Name != "CustomNoteData")
+            {
+                VerboseLog($"NoteIsNeDissolved: noteData type '{t.Name}' is not CustomNoteData - skipping");
+                return false;
+            }
+
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var prop = t.GetProperty("customData", flags);
+            var raw0 = prop != null ? prop.GetValue(data) : null;
+            if (raw0 == null)
+            {
+                var field = t.GetField("customData", flags);
+                if (field != null)
+                    raw0 = field.GetValue(data);
+            }
+            // NE's CustomNoteData.customData is a CustomData OBJECT, not a
+            // string; its ToString() renders the JSON-ish source text.
+            string raw = (raw0 as string) ?? raw0?.ToString() ?? string.Empty;
+            if (raw.Length == 0)
+            {
+                VerboseLog($"NoteIsNeDissolved: customData empty/unreadable (prop={prop != null}, type={raw0?.GetType().Name}) - skipping");
+                return false;
+            }
+
+            // The customData text is NE/Chromapper flavored JSON-ish: booleans
+            // may be capitalized ("True") and object refs unquoted ("n358.5"),
+            // so JObject.Parse can throw. Scan the text instead for the note
+            // body "dissolve" key (the optional "dissolveArrow" key only fades
+            // the arrow and must not trigger), then look at its keyframe values
+            // "[[t, v], [t, v], ...]": a trailing value >= 1 = fully dissolved.
+            int idx = raw.IndexOf("\"dissolve\"", System.StringComparison.Ordinal);
+            if (idx < 0)
+                return false;
+            int end = raw.IndexOf('}', idx);
+            if (end < 0)
+                end = raw.Length;
+            string block = raw.Substring(idx, end - idx);
+
+            int p = 0;
+            while (true)
+            {
+                int open = block.IndexOf("[[", p);
+                if (open < 0)
+                    break;
+                int close = block.IndexOf("]]", open);
+                if (close < 0)
+                    break;
+                string inner = block.Substring(open + 2, close - open - 2);
+                foreach (string kf in inner.Split(new[] { "], [" }, System.StringSplitOptions.None))
+                {
+                    var parts = kf.Split(',');
+                    string lastStr = parts[parts.Length - 1].Trim().TrimStart('+');
+                    double val;
+                    if (double.TryParse(lastStr, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out val) && val >= 0.999)
+                        return true;
+                }
+                p = close + 2;
+            }
+            return false;
+        }
+        catch (System.Exception ex)
+        {
+            VerboseLog($"NoteIsNeDissolved: exception during customData inspection - {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+    }
+
     private static System.Collections.IEnumerator ApplyBombVisualDeferred(NoteController note, Color color, bool rainbow)
     {
         // Vivify and similar mods may take multiple frames to set up a note's
@@ -1930,6 +2059,23 @@ internal static class NoteCosmeticController
             yield return null;
             if (note == null || !_bombedNotes.Contains(note))
                 yield break;
+
+            // Noodle/Vivify can animate a note fully invisible via renderer
+            // disable, deactivated children, scale-to-zero, or (as discovered
+            // in Paradigm-style maps) an NE dissolve animation that reaches 1
+            // (fully dissolved) while leaving the renderer enabled. All leave a
+            // floating bomb where the player must swing through empty air.
+            // Refuse and refund; the next visible note gets the bomb instead.
+            var noBody = NoteHasNoVisibleBody(note);
+            var neDissolved = NoteIsNeDissolved(note);
+            if (noBody || neDissolved)
+            {
+                VerboseLog($"ApplyBombVisualDeferred: note {note.GetInstanceID()} " +
+                    $"not eligible for bomb visual (noBody={noBody}, neDissolved={neDissolved}) - refusing");
+                RestoreNoteIfNeeded(note);
+                yield break;
+            }
+
             if (ApplyBombVisual(note, color, rainbow))
                 yield break;
         }
@@ -1940,7 +2086,7 @@ internal static class NoteCosmeticController
         if (note == null || note is BombNoteController)
             return false;
 
-        VerboseLog($"ApplyBombVisual: Starting for note {note.GetInstanceID()}, name={note.name}");
+        VerboseLog($"ApplyBombVisual: Starting for note {note.GetInstanceID()}, type={note.GetType().Name}, name={note.name}, pos={note.transform.position}");
 
         EnsureGlowMaterial();
 
@@ -2394,6 +2540,20 @@ internal static class NoteCosmeticController
             sb.AppendLine("  note inst=" + (note != null ? note.GetInstanceID() + " " + note.name : "null"));
         sb.AppendLine();
 
+        sb.AppendLine("--- Active events count=" + _activeEvents.Count);
+        foreach (var evt in _activeEvents)
+        {
+            sb.AppendLine("  " + evt.Type + " user='" + evt.User + "' isBombEvt=" + evt.IsBomb +
+                " hasBombVisual=" + evt.HasBombVisual +
+                " notesRemaining=" + evt.NotesRemaining +
+                " bombVisualsRemaining=" + evt.BombVisualsRemaining +
+                " textRemaining=" + evt.TextRemaining +
+                " notesInFlight=" + evt.NotesInFlight.Count +
+                " notesParticles=" + evt.NoteParticles.Count +
+                " notesTexts=" + evt.NoteTexts.Count);
+        }
+        sb.AppendLine();
+
         // Walk every active NoteController (pooled note prefabs stay as inactive
         // scene objects; includeInactive finds those too so we can see pooled
         // leftovers carrying stale visuals).
@@ -2403,9 +2563,13 @@ internal static class NoteCosmeticController
         {
             if (note == null || note.transform == null) continue;
             sb.AppendLine();
-            sb.AppendLine("## NOTE inst=" + note.GetInstanceID() + " name=" + note.name +
+            sb.AppendLine("## NOTE inst=" + note.GetInstanceID() + " type=" + note.GetType().Name +
+                " name=" + note.name +
                 " activeSelf=" + note.gameObject.activeSelf + " activeHier=" + note.gameObject.activeInHierarchy +
-                " pos=" + note.transform.position);
+                " pos=" + note.transform.position +
+                " dist=" + note.transform.position.magnitude.ToString("F1") +
+                DescribeNoteClaimTags(note));
+            sb.AppendLine("  " + DescribeNoteData(note));
             DumpTransformTree(sb, note.transform, 1);
         }
 
@@ -2439,6 +2603,75 @@ internal static class NoteCosmeticController
         {
             Plugin.Log.Warn("Scene dump failed to write to " + dumpPath + ": " + ex.Message);
         }
+    }
+
+    // Best-effort read of the base-game + NE note data. Used by the scene dump to
+    // tell real bombs from game notes and to correlate which notes got claimed.
+    // On Noodle maps NoteController.noteData is actually NE's CustomNoteData,
+    // whose public fields (Fake, Uninteractable, Scale, ...) ARE the signal we
+    // need to separate "visible+fake / animated-invisible" notes from real ones.
+    // Read via reflection so a BeatmapCore/NE rename can't break the build.
+    private static string DescribeNoteData(NoteController note)
+    {
+        var data = note != null ? note.noteData : null;
+        if (data == null)
+            return "noteData=null";
+        try
+        {
+            var t = data.GetType();
+            var sb = new StringBuilder();
+            sb.Append("noteData (class=").Append(t.Name).Append(")");
+
+            // Base-game surface: color/bomb type, cut direction, line info, beat.
+            foreach (var prop in new[] { "colorType", "cutDirection", "lineIndex", "lineLayer", "time" })
+            {
+                sb.Append(' ').Append(prop).Append('=');
+                try { sb.Append(t.GetProperty(prop)?.GetValue(data) ?? "?"); }
+                catch { sb.Append('?'); }
+            }
+
+            // NE's CustomNoteData carries its own declared fields (Fake,
+            // Uninteractable, DisableNoteGravity, Scale, ...). Dump them so the
+            // dump shows which notes are genuinely fake/invisible vs real.
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            foreach (var f in t.GetFields(flags))
+            {
+                if (f.IsLiteral) continue;
+                if (f.DeclaringType != t) continue;
+                object v;
+                try { v = f.GetValue(data); }
+                catch { continue; }
+                sb.Append('\n').Append("    NE[").Append(f.Name).Append("]=").Append(v ?? "null");
+            }
+            return sb.ToString();
+        }
+        catch (Exception ex)
+        {
+            return "noteData describe failed: " + ex.Message;
+        }
+    }
+
+    // Compact markers showing every way this note is currently claimed by our
+    // systems - the scene dump's primary job is spotting claims gone wrong.
+    private static string DescribeNoteClaimTags(NoteController note)
+    {
+        var sb = new StringBuilder();
+        if (note == null) return sb.ToString();
+
+        if (note is BombNoteController) sb.Append(" [REAL-BOMB]");
+        if (_bombedNotes.Contains(note)) sb.Append(" [BOMBED]");
+        if (_cutBombNotes.Contains(note)) sb.Append(" [CUT]");
+        if (_bombChildByNote.ContainsKey(note)) sb.Append(" [HAS-BOMB-CHILD]");
+
+        var evt = FindOwningEvent(note);
+        if (evt != null)
+        {
+            sb.Append(" [EVT=").Append(evt.Type).Append("]");
+            if (evt.NoteParticles.ContainsKey(note)) sb.Append(" [PARTICLES]");
+            if (evt.NoteTexts.ContainsKey(note)) sb.Append(" [TEXT]");
+            if (evt.NotesInFlight.Contains(note)) sb.Append(" [INFLIGHT]");
+        }
+        return sb.ToString();
     }
 
     private static void DumpTransformTree(StringBuilder sb, Transform t, int indent)

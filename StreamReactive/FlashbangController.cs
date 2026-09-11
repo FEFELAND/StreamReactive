@@ -109,11 +109,11 @@ internal sealed class FlashbangController : MonoBehaviour
 
         EndRoutine();
 
-        // Force the tracking log to fire on every flash so gameplay
-        // misbehavior is always diagnosable from the log.
+        // Re-trace the head camera on this flash so a camera re-pick surfaces
+        // when verbose logging is on.
         _lastHeadName = null;
 
-        Plugin.Log.Info($"Flashbang: blinding for {duration:F1}s at {maxAlpha * 100f:F0}% opacity.");
+        NoteCosmeticController.VerboseLog($"Flashbang: blinding for {duration:F1}s at {maxAlpha * 100f:F0}% opacity.");
         _routine = StartCoroutine(RunFlash(duration, maxAlpha, fade));
 
         SpawnViewerText(cfg!, duration);
@@ -392,7 +392,7 @@ internal sealed class FlashbangController : MonoBehaviour
         if (_lastHeadName != cam.gameObject.name)
         {
             _lastHeadName = cam.gameObject.name;
-            Plugin.Log.Info(
+            NoteCosmeticController.VerboseLog(
                 $"Flashbang: tracking head via camera '{cam.gameObject.name}' (near={cam.nearClipPlane:F3}).");
         }
     }

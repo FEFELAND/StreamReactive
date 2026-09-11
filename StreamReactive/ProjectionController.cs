@@ -127,7 +127,7 @@ internal sealed class ProjectionController : MonoBehaviour
         EndRoutine();
         DestroyParticles();
 
-        Plugin.Log.Info($"Projection: showing '{name}' for {duration:F1}s.");
+        NoteCosmeticController.VerboseLog($"Projection: showing '{name}' for {duration:F1}s.");
         _routine = StartCoroutine(RunProjection(name, color, duration, fadeIn, fadeOut, size, position, rotation, particleSize, maxCount));
     }
 
@@ -293,6 +293,7 @@ internal sealed class ProjectionController : MonoBehaviour
 
         var ps = root.AddComponent<ParticleSystem>();
         ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        _spiralEmitters.Add(ps);
 
         var main = ps.main;
         main.simulationSpace = ParticleSystemSimulationSpace.World;
@@ -385,17 +386,6 @@ internal sealed class ProjectionController : MonoBehaviour
         yield return new WaitForSeconds(streamLife);
 
         DestroySpiralEmitters();
-    }
-
-    private ParticleSystem CreateSpiralEmitter(
-        Transform parent, int maxParticles, float particleSize, Color color,
-        float lifetime, float particleSpeed)
-    {
-        var go = new GameObject("SpiralEmitter");
-        go.transform.SetParent(parent, false);
-        var ps = go.AddComponent<ParticleSystem>();
-        ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-        return ps;
     }
 
     private static Material CreateDefaultMaterial()

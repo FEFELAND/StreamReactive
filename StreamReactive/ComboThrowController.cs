@@ -68,13 +68,13 @@ internal static class ComboThrowController
         // transient effects.
         if (Plugin.IsMapProtectionActive())
         {
-            Plugin.Log.Debug("ComboThrow: skipped (map protection active).");
+            NoteCosmeticController.VerboseLog("ComboThrow: skipped (map protection active).");
             return;
         }
 
         if (prev >= cfg.ComboThrowThreshold)
         {
-            Plugin.Log.Debug($"ComboThrow: combo broke from {prev} (>= {cfg.ComboThrowThreshold}); throwing a block.");
+            NoteCosmeticController.VerboseLog($"ComboThrow: combo broke from {prev} (>= {cfg.ComboThrowThreshold}); throwing a block.");
             ProjectileThrower.Throw(1);
         }
     }

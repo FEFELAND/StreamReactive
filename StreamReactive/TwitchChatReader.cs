@@ -86,7 +86,7 @@ internal sealed class TwitchChatReader : IDisposable
                 var emotes = ParseEmotes(line);
                 if (emotes.Length > 0)
                 {
-                    Plugin.Log.Debug($"TwitchChatReader: emote(s) from '{user}': {string.Join(", ", emotes)}");
+                    NoteCosmeticController.VerboseLog($"TwitchChatReader: emote(s) from '{user}': {string.Join(", ", emotes)}");
                     RuntimeHooks.EnqueueEmoteEvent(user, emotes);
                 }
             }
@@ -136,7 +136,7 @@ internal sealed class TwitchChatReader : IDisposable
                 var id = part.Split(':')[0];
                 if (string.IsNullOrEmpty(id)) continue;
                 var code = EmoteCache.Instance.EnsureTwitchEmote(id);
-                Plugin.Log.Debug($"TwitchChatReader: detected Twitch emote id '{id}' -> code '{code}'");
+                NoteCosmeticController.VerboseLog($"TwitchChatReader: detected Twitch emote id '{id}' -> code '{code}'");
                 if (!found.Contains(code)) found.Add(code);
             }
         }
