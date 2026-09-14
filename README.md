@@ -43,7 +43,7 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - Pretty much everything configurable from inside the game with the ability to override some things via websocket.
 - In-game you can also launch a [test dashboard](#test-dashboard) that opens in your browser. Here you can test things and see how they look.
 - The [test dashboard](#test-dashboard) also includes a [message generator](#message-generator) for easy setup of all the supported events (json string or ready made streamer.bot c# code).
-- [Twitch only](#twitch-user-setup) install method: 1.2.0 adds an option to use the mod just with your channel name. Though I still recommend websocket.
+- [Twitch only](#setting-up) setup method: 1.2.0 adds an option to use the mod just with your channel name. Though I still recommend websocket.
 # Installing
 ### Dependencies:
 - Your usual core mods: `BSIPA`, `SongCore`, `BS Utils`, `BSML`, `ImageSharp`
