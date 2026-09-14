@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - `Throw` - A neat throw system. Currently supporting a player's notes (and emotes if enabled). Launches a cube that bounces off your headset/avatar.
 - `Flashbang` - Streamer gets blinded by a white screen while stream/viewers gets an informative text.
 - `Projection` - Sort of experimental feature I'm not sure how take advantage of yet. But it allows you to load any .obj file you want as particles. And some preset animations.
-- `CubeAnimation` - Silly addition, currently only has a cube floating to the platform, lurking for a few seconds and going away. Along with a name tag.
+- `CubeAnimation` - Silly addition. "Lurk" and "Eject" available.
 - Management events:
   - `Enable` - Enables the mod.
   - `Disable` - Shuts down the mod basically. No reactions to anything, nothing queues up (Chat and Emotes are independent from this toggle).
@@ -40,7 +40,8 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - Pretty much everything configurable from inside the game with the ability to override some things via websocket.
 - In-game you can also launch a [test dashboard](#test-dashboard) that opens in your browser. Here you can test things and see how they look.
 - The [test dashboard](#test-dashboard) also includes a [message generator](#message-generator) for easy setup of all the supported events (json string or ready made streamer.bot c# code).
-# Installing/Setting Up
+- [Twitch only](#twitch-user-setup) install method: 1.2.0 adds an option to use the mod just with your channel name. Though I still recommend websocket.
+# Installing
 ### Dependencies:
 - Your usual core mods: `BSIPA`, `SongCore`, `BS Utils`, `BSML`, `ImageSharp`
 - `websocket-sharp`
@@ -49,10 +50,38 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - Just like any other mod, head over to the [releases page](https://github.com/FEFELAND/StreamReactive/releases) and grab the latest release.
 - Drag StreamReactive.dll and place it in your Plugins folder
 - Upon first launch, a config file and a `StreamReactive` folder will show in your `UserData` folder. [Explained here](#userdata-folders)
-### Basic setup:
+
+# Setting up
+<details>
+<summary><strong>✨WebSocket (Recommended)✨</strong></summary>
+
+Using this method will give you the most control over every feature of the mod. Configure every trigger to exactly what you want.
+
+  ### Basic socket setup:
 - In your preferred stream bot, connect to the following socket client: `ws://localhost:41243/stream` (or whatever port you set)
 - Using the [message generator](#message-generator) in the [test dashboard](#test-dashboard) configure any events you want to trigger into your bot.
 - Pretty much on your own from there/unique to what bot you are using and how you want to trigger events. Channel points, commands or anything else you think of.
+- If you wish to use the Chat and Emote system, you must add your channel name to the Config tab in the Twitch section.
+  - ⚠ Don't need to enable anything else in the config page if you are already controlling it via websocket ⚠
+</details>
+
+<details>
+<summary><strong>💬Twitch Username Only💬</strong></summary>
+
+  > I highly recommend using the WebSocket method instead. But if you just want basic functionality/give the mod a test drive, then this could be a nice option for you.
+
+Since mod version **1.2.0**, you are now able to use this mod without the need to setup via a stream bot. This will allow you to use most features just by providing your twitch channel name. 
+
+### Twitch User Setup:
+
+- Head over to the mod's setting page and scroll down to the Twitch section. Then click on the Config tab.
+- From here you just input your channel name at the top.
+- By default everything is off. Enable all the events you want and modify the commands as you like.
+- With this, you may also head over to the Chat and Emote tabs and enable anything you like there too.
+
+![Twitch Config](Assets/Images/TwitchOnlySetup.jpg)
+</details>
+
 ## Test Dashboard and Generator
 The following pages you can find by clicking "open test dashboard" in-game or by going to http://localhost:41243/ (or your port) while the game is open.
 ### Test Dashboard
@@ -61,6 +90,8 @@ The following pages you can find by clicking "open test dashboard" in-game or by
 ![Test Dashboard](Assets/Images/SR-TestDash1.PNG)
 ### Message Generator
 > You can use this tab to quickly setup the messages/strings you need your bot to send in order to get events to start showing. Currently can be generated as a regular json or ready made C# code for streamer.bot
+
+> After you run the mod for the first time, you may also use the generator without needing the game open by going to `\UserData\StreamReactive\generator.html`
 
 ![Message Generator](Assets/Images/SR-TestDash2.PNG)
 
