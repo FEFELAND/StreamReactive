@@ -96,12 +96,14 @@ The following pages you can find by clicking "open test dashboard" in-game or by
 ![Message Generator](Assets/Images/SR-TestDash2.PNG)
 
 ## UserData Folders
-Currently you can find `Sounds` and `Projections` in there.
+Found under `(your beat saber install)\UserData\StreamReactive`
 
 ### Sounds
 - In this folder, throw any `.ogg` files you'd like. In-game you have the option to select those sounds from a list in several of the events.
 ### Projections
 - In this folder, throw any `.obj` files you'd like. Models. The main idea behind this was: The old GameChanger plugin had a phoenix that would spawn at the 10,000 bits tier animation. With this you could have that with a phoenix like logo, your own logo or whatever you want to put there.
+### Generator.html
+- A standalone file of the the message generator sot that you can configure your bot/websocket without needing to open the game.
 
 ## Queue System
 
