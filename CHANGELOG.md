@@ -1,4 +1,4 @@
-# 1.1.6
+# 1.2.0
 - **Big feature**: You may now use the mod without the need of a bot if you want. Only your twitch channel name. (Though I still recommend the websocket setup instead) (Thanks qlulezz for the idea)
 - Twitch channel name method supports: Subs, Bits, Raids, !bomb and !throw
 - Each category listed can now be individually turned off. If you want to momentarily turn off something even if you have it set up via websocket or irc. (Thanks qlulezz for the idea)
