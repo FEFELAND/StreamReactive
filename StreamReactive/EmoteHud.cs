@@ -94,6 +94,11 @@ internal static class EmoteVisualFactory
         var go = new GameObject("EmoteSprite");
         go.transform.SetParent(null);
         go.transform.position = followTarget != null ? followTarget.position : Vector3.zero;
+        // Bake the size in at creation instead of waiting for the first
+        // LateUpdate: otherwise the sprite renders at its raw scale for one
+        // frame whenever it's created mid/late-frame.
+        var k = UniformScaleFor(tex, baseSize);
+        go.transform.localScale = new Vector3(k, k, 1f);
         var sr = go.AddComponent<SpriteRenderer>();
         var mat = GetSpriteMaterial();
         if (mat != null) sr.material = mat;

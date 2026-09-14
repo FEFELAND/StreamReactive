@@ -21,6 +21,19 @@ public class PluginConfig
     // nothing plays until unpaused. Toggled by the General settings "Paused"
     // switch and the pause/unpause websocket commands.
     public virtual bool Paused { get; set; } = false;
+
+    // Per-event kill switches (the toggles at the top of each category page).
+    // Each one turns off a whole effect class REGARDLESS of how it's triggered
+    // - a websocket payload or an IRC event both funnel through the same gate.
+    // All default ON so existing setups keep working. Throw is intentionally
+    // absent: Throw's "Enable Throw" toggle already gates every throw.
+    public virtual bool EventBombEnabled { get; set; } = true;
+    public virtual bool EventBitsEnabled { get; set; } = true;
+    public virtual bool EventSubEnabled { get; set; } = true;
+    public virtual bool EventRaidEnabled { get; set; } = true;
+    public virtual bool EventFlashbangEnabled { get; set; } = true;
+    public virtual bool EventProjectionEnabled { get; set; } = true;
+
     public virtual int WebSocketPort { get; set; } = 41243;
     public virtual bool IncludeBombNotes { get; set; } = false;
     public virtual bool VerboseLogging { get; set; } = false;
@@ -86,7 +99,7 @@ public class PluginConfig
     [UseConverter(typeof(ColorConverter))]
     public virtual Color BitTier10000Color { get; set; } = new Color(0.913f, 0.098f, 0.086f);
     public virtual int BitTier10000Count { get; set; } = 20000;
-    public virtual int BitTier10000BlockRatio { get; set; } = 1;
+    public virtual int BitTier10000BlockRatio { get; set; } = 50;
     public virtual float BitTier10000Scale { get; set; } = 0.015f;
     public virtual float BitTier10000Lifetime { get; set; } = 1.5f;
     public virtual float BitTier10000Speed { get; set; } = 7f;
@@ -95,7 +108,7 @@ public class PluginConfig
     [UseConverter(typeof(ColorConverter))]
     public virtual Color BitTier5000Color { get; set; } = new Color(0.125f, 0.635f, 0.969f);
     public virtual int BitTier5000Count { get; set; } = 5000;
-    public virtual int BitTier5000BlockRatio { get; set; } = 1;
+    public virtual int BitTier5000BlockRatio { get; set; } = 50;
     public virtual float BitTier5000Scale { get; set; } = 0.015f;
     public virtual float BitTier5000Lifetime { get; set; } = 1.5f;
     public virtual float BitTier5000Speed { get; set; } = 5f;
@@ -104,7 +117,7 @@ public class PluginConfig
     [UseConverter(typeof(ColorConverter))]
     public virtual Color BitTier1000Color { get; set; } = new Color(0.000f, 0.925f, 0.396f);
     public virtual int BitTier1000Count { get; set; } = 2000;
-    public virtual int BitTier1000BlockRatio { get; set; } = 1;
+    public virtual int BitTier1000BlockRatio { get; set; } = 25;
     public virtual float BitTier1000Scale { get; set; } = 0.015f;
     public virtual float BitTier1000Lifetime { get; set; } = 1f;
     public virtual float BitTier1000Speed { get; set; } = 3f;
@@ -113,7 +126,7 @@ public class PluginConfig
     [UseConverter(typeof(ColorConverter))]
     public virtual Color BitTier100Color { get; set; } = new Color(0.569f, 0.278f, 1.000f);
     public virtual int BitTier100Count { get; set; } = 500;
-    public virtual int BitTier100BlockRatio { get; set; } = 1;
+    public virtual int BitTier100BlockRatio { get; set; } = 5;
     public virtual float BitTier100Scale { get; set; } = 0.015f;
     public virtual float BitTier100Lifetime { get; set; } = 1f;
     public virtual float BitTier100Speed { get; set; } = 1.5f;
@@ -242,6 +255,10 @@ public class PluginConfig
     public virtual float FlashbangViewerTextSize { get; set; } = 2.5f;
     [UseConverter(typeof(ColorConverter))]
     public virtual Color FlashbangViewerTextColor { get; set; } = Color.white;
+    // Sound played each time a flash actually goes off (including deferred ones
+    // replayed later). None = silent.
+    public virtual string FlashbangSoundFile { get; set; } = "";
+    public virtual float FlashbangSoundVolume { get; set; } = 0.8f;
 
     // Projection
     public virtual float ProjectionDuration { get; set; } = 8f;
@@ -290,6 +307,11 @@ public class PluginConfig
     public virtual float ChatWidth { get; set; } = 60f;
     public virtual float ChatHeight { get; set; } = 80f;
     public virtual float ChatFontSize { get; set; } = 2.6f;
+    // Canvas sorting order for the chat panel. BSML floating screens default to
+    // 4, which renders above almost every other UI even when the panel is
+    // physically behind it. Lower values (0 or negative) let overlapping menus,
+    // pause and results screens draw on top of the panel.
+    public virtual int ChatSortingOrder { get; set; } = 0;
     // Chat panel spawn defaults match the Chat settings "Reset Position" button
     // (ChatPanelController.DefaultPosition/DefaultRotation), so a fresh config
     // file places the panel identically to a reset instead of the fallback
@@ -306,6 +328,48 @@ public class PluginConfig
     // When true, always use ChatNameColor for usernames instead of the color
     // each viewer set in their Twitch chat.
     public virtual bool ChatForceNameColor { get; set; } = false;
+    // Twitch system events (subs, gifts, raids, watch streaks, timeouts, bans,
+    // chat-mode changes...) shown in the chat panel as distinct colored lines.
+    // Off hides those lines entirely; regular messages are unaffected.
+    public virtual bool ChatPanelShowSystemEvents { get; set; } = true;
+    [UseConverter(typeof(ColorConverter))]
+    public virtual Color ChatSystemEventColor { get; set; } = new Color(0.72f, 0.55f, 1f);
+    // Twitch Shared Chat relays partner channels' messages into our channel,
+    // tagged by Twitch with source-room-id / source-id. On keeps those relayed
+    // lines (marked [SHARED]) in the panel; off hides them entirely.
+    public virtual bool ChatPanelAllowSharedChat { get; set; } = true;
+
+    // ---- IRC-triggered events (bot-less alternative to the WebSocket) ----
+    // The anonymous IRC connection (see TwitchChatReader) sees the same Twitch
+    // notices a bot would. Each of these toggles lets a detected IRC event also
+    // drive the matching effect pipeline (Plugin.DispatchStreamEvent), which the
+    // websocket payloads use too. All are OFF by default: the WebSocket stays the
+    // primary, full-control path and turning any of these on is purely additive.
+    // Detectable events: cheers (bits), subscriptions, gifted subs, raids, plus
+    // the chat-bomb command below. Watch streaks / modivery / follows are shown
+    // in the chat panel but deliberately drive NO effect yet.
+    public virtual bool IrcBitsEnabled { get; set; } = false;
+    public virtual bool IrcSubEnabled { get; set; } = false;
+    public virtual bool IrcGiftEnabled { get; set; } = false;
+    public virtual bool IrcRaidEnabled { get; set; } = false;
+    // Chat bomb: when enabled, a chat message whose FIRST word exactly matches
+    // IrcBombCommand (the '!' is required, e.g. "!bomb") triggers a bomb effect
+    // from that viewer.
+    public virtual bool IrcBombEnabled { get; set; } = false;
+    public virtual string IrcBombCommand { get; set; } = "!bomb";
+    // When true, words typed after the command ("!bomb hello there") show as the
+    // bomb's viewer text. Off = the bomb only shows the viewer's name.
+    public virtual bool IrcBombAllowTextEnabled { get; set; } = true;
+    // Global seconds between chat-bomb activations. 0 = no limit.
+    public virtual int IrcBombCooldown { get; set; } = 10;
+
+    // Chat throw command: when enabled, a chat message whose FIRST word exactly
+    // matches IrcThrowCommand (e.g. "!throw") throws a block/note at the player.
+    // An optional number after the command ("!throw 5") sets how many launch.
+    public virtual bool IrcThrowEnabled { get; set; } = false;
+    public virtual string IrcThrowCommand { get; set; } = "!throw";
+    // Global seconds between chat-throw activations. 0 = no limit.
+    public virtual int IrcThrowCooldown { get; set; } = 10;
 
     public virtual void Changed()
     {

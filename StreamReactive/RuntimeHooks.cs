@@ -16,21 +16,48 @@ internal sealed class RuntimeHooks : MonoBehaviour
     // Thread-safe queue for full chat messages arriving from the IRC reader.
     // colorHex is the viewer's Twitch chat color (hex from the IRC color tag),
     // or null when the viewer hasn't set one. badges is preformatted badge text
-    // (e.g. "[MOD] [VIP]") from the IRC badges tag, empty when none.
-    private static readonly ConcurrentQueue<(string user, string message, string? colorHex, string badges)> _pendingChat = new();
+    // (e.g. "[MOD] [VIP]") from the IRC badges tag, empty when none. id is the
+    // IRC message id, used to remove the line when Twitch deletes the message.
+    // isShared marks messages relayed in from a Shared Chat partner channel.
+    private static readonly ConcurrentQueue<(string user, string message, string? colorHex, string badges, string id, bool isShared)> _pendingChat = new();
+
+    // Queue for Twitch system events (subs, raids, watch streaks, timeouts,
+    // bans, chat-mode changes...) rendered as styled lines in the chat panel.
+    // detail is optional user text (e.g. a resub message) shown indented under
+    // the event line. isShared marks events relayed via a Shared Chat partner.
+    private static readonly ConcurrentQueue<(string text, string? detail, bool isShared)> _pendingSystem = new();
+
+    // Queue for IRC-detected events mapped to WebSocket-style effects (cheers,
+    // subs, gifted subs, raids, watch streaks, chat bomb commands). Filled from
+    // the IRC background thread, routed on the main thread via IrcEventRouter so
+    // config toggles/cooldowns and Plugin.DispatchStreamEvent all run on Unity's
+    // thread (matching how WebSocket messages are handled).
+    private static readonly ConcurrentQueue<(string msgId, string user, int amount, string message)> _pendingIrcEffects = new();
 
     // Queue for work that must run on the main thread (e.g. creating textures
     // after a background-thread decode completes).
     private static readonly ConcurrentQueue<Action> _mainThreadActions = new();
+
+    internal static void EnqueueIrcEvent(string msgId, string user, int amount = 0, string message = "")
+    {
+        if (string.IsNullOrEmpty(msgId)) return;
+        _pendingIrcEffects.Enqueue((msgId, user, amount, message));
+    }
 
     internal static void EnqueueEmoteEvent(string user, string[] emotes)
     {
         _pendingEmotes.Enqueue((user, emotes));
     }
 
-    internal static void EnqueueChatMessage(string user, string message, string? colorHex = null, string badges = "")
+    internal static void EnqueueChatMessage(string user, string message, string? colorHex = null, string badges = "", string id = "", bool isShared = false)
     {
-        _pendingChat.Enqueue((user, message, colorHex, badges));
+        _pendingChat.Enqueue((user, message, colorHex, badges, id, isShared));
+    }
+
+    internal static void EnqueueSystemEvent(string text, string? detail = null, bool isShared = false)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        _pendingSystem.Enqueue((text, detail, isShared));
     }
 
     internal static void RunOnMainThread(Action action) => _mainThreadActions.Enqueue(action);
@@ -73,14 +100,28 @@ internal sealed class RuntimeHooks : MonoBehaviour
 
         ProcessPendingEmotes();
         ProcessPendingChat();
+        ProcessPendingSystem();
+        ProcessPendingIrcEffects();
+
+        try { Plugin.TryTickPendingFlashbangs(); }
+        catch (Exception ex) { Plugin.Log.Warn($"RuntimeHooks: flashbang timers failed: {ex.Message}"); }
     }
 
     private void ProcessPendingChat()
     {
         while (_pendingChat.TryDequeue(out var item))
         {
-            try { ChatPanelController.Instance?.AddMessage(item.user, item.message, item.colorHex, item.badges); }
+            try { ChatPanelController.Instance?.AddMessage(item.user, item.message, item.colorHex, item.badges, item.id, item.isShared); }
             catch (Exception ex) { Plugin.Log.Warn($"RuntimeHooks: chat event failed for '{item.user}': {ex.Message}"); }
+        }
+    }
+
+    private void ProcessPendingSystem()
+    {
+        while (_pendingSystem.TryDequeue(out var item))
+        {
+            try { ChatPanelController.Instance?.AddSystemEvent(item.text, item.detail, item.isShared); }
+            catch (Exception ex) { Plugin.Log.Warn($"RuntimeHooks: system event failed: {ex.Message}"); }
         }
     }
 
@@ -90,6 +131,15 @@ internal sealed class RuntimeHooks : MonoBehaviour
         {
             try { Plugin.Instance?.HandleEmoteDetected(item.user, item.emotes); }
             catch (Exception ex) { Plugin.Log.Warn($"RuntimeHooks: emote event failed for '{item.user}': {ex.Message}"); }
+        }
+    }
+
+    private void ProcessPendingIrcEffects()
+    {
+        while (_pendingIrcEffects.TryDequeue(out var item))
+        {
+            try { IrcEventRouter.Handle(item.msgId, item.user, item.amount, item.message); }
+            catch (Exception ex) { Plugin.Log.Warn($"RuntimeHooks: IRC effect '{item.msgId}' failed: {ex.Message}"); }
         }
     }
 

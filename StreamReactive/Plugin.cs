@@ -47,12 +47,24 @@ public class Plugin
     private bool _mapIsWip;
     private bool _mapIsRanked;
 
-    // Flashbangs received while a protected map is active are held here and
-    // replayed at the start of the next non-protected map (see
-    // HoldFlashbang / TryDrainHeldFlashbangs). Guarded so WebSocket/chat threads
-    // can enqueue while the main thread drains.
+    // Flashbangs received while a protected map (or pause) is active are held
+    // here and replayed at the start of the next valid map with RANDOM delays.
+    // _heldFlashbangs is the thread-safe intake queue (guarded by the lock; filled
+    // from WebSocket/chat threads, drained on the main thread). _pendingFlashDelays
+    // holds the countdown for each deferred flash as remaining seconds of valid
+    // gameplay and is only touched on the main thread. Each entry starts at a
+    // random 20-60s and only counts down while inside a valid (unpaused,
+    // unprotected) in-game map, so short maps / restarts / leaving to the menu just
+    // freeze the timers and they resume on the next valid map instead of being lost.
+    private const float FlashBangMinDelay = 20f;
+    private const float FlashBangMaxDelay = 60f;
+    // Clear time enforced between the END of one deferred flash and the START of
+    // the next, so a batch of held flashbangs never stacks into endless white-out.
+    private const float FlashBangGapSeconds = 15f;
+
     private readonly object _heldFlashbangLock = new();
     private readonly List<int> _heldFlashbangs = new();
+    private readonly List<float> _pendingFlashDelays = new();
 
     private WebSocketServer? _wsServer;
     private TwitchChatReader? _chatReader;
@@ -718,21 +730,84 @@ public class Plugin
                 return;
             _heldFlashbangs.Clear();
         }
-        Log.Info($"Replaying {count} deferred flashbang(s).");
-        RuntimeHooks.RunCoroutine(ReplayHeldFlashbangsCoroutine(count));
+        SchedulePendingFlashbangs(count);
     }
 
-    private System.Collections.IEnumerator ReplayHeldFlashbangsCoroutine(int count)
+    /// <summary>
+    /// Assigns each so-far-held flash a random 20-60s trigger, ensuring at least
+    /// FlashBangGapSeconds of clear time between the END of one flash and the START
+    /// of the next. Delays are stored as remaining seconds of valid gameplay; a
+    /// fresh batch stays correctly spaced behind any batch sill counting.
+    /// </summary>
+    private void SchedulePendingFlashbangs(int count)
     {
+        var cfg = PluginConfig.Instance;
+        var dur = Mathf.Clamp(cfg?.FlashbangDuration ?? 4f, 0.5f, 10f);
+
+        float prevDelay = 0f;
+        if (_pendingFlashDelays.Count > 0)
+            prevDelay = _pendingFlashDelays[_pendingFlashDelays.Count - 1];
+
+        var triggers = new List<string>(count);
         for (int i = 0; i < count; i++)
         {
-            FlashbangController.Flash();
-            // Gap of at least the configured flash length so consecutive deferred
-            // flashbangs don't stack into one uninterruptible blind.
-            float dur = Mathf.Clamp(PluginConfig.Instance?.FlashbangDuration ?? 4f, 0.5f, 10f);
-            if (i < count - 1)
-                yield return new WaitForSeconds(Mathf.Max(dur, 0.5f));
+            var delay = UnityEngine.Random.Range(FlashBangMinDelay, FlashBangMaxDelay);
+            var earliest = prevDelay + dur + FlashBangGapSeconds;
+            if (delay < earliest)
+                delay = earliest;
+            _pendingFlashDelays.Add(delay);
+            triggers.Add(delay.ToString("F1"));
+            prevDelay = delay;
         }
+
+        Log.Info($"Scheduled {count} deferred flashbang(s); triggers: {string.Join(", ", triggers)}s from now.");
+    }
+
+    /// <summary>
+    /// Counts deferred flashbangs down while in a valid map (unpaused,
+    /// unprotected, actually in-game). Runs every frame from RuntimeHooks.LateUpdate.
+    /// When a flash's remaining time elapses it fires. Leaving the map / pausing /
+    /// entering a protected map freezes the timers in place so they resume on the
+    /// next valid map without losing the deferred flash.
+    /// </summary>
+    internal static void TryTickPendingFlashbangs()
+    {
+        var instance = Instance;
+        if (instance == null || instance._pendingFlashDelays.Count == 0)
+            return;
+
+        // Freeze while outside a playable scene, paused, or on a protected map.
+        if (!instance._inGame || PluginConfig.Instance?.Paused == true || IsMapProtectionActive())
+            return;
+
+        var list = instance._pendingFlashDelays;
+        var dt = Time.deltaTime;
+
+        // Delays are sorted ascending and fire front-first, so index 0 is always
+        // the next to elapse. Decrement only the front (the gap spacing guarantees
+        // nothing behind it is due yet).
+        list[0] -= dt;
+        if (list[0] > 0f)
+            return;
+
+        // Front elapsed: fire it (and any further expirations already due).
+        while (list.Count > 0 && list[0] <= 0f)
+        {
+            list.RemoveAt(0);
+            FlashbangController.Flash();
+        }
+    }
+
+    /// <summary>
+    /// Cancels any still-pending deferred flashbangs (used by stop_all / the
+    /// settings clear button). Main thread only.
+    /// </summary>
+    internal static void ClearPendingFlashbangs()
+    {
+        var instance = Instance;
+        if (instance == null)
+            return;
+        instance._pendingFlashDelays.Clear();
     }
 
     internal static bool IsInGame => Instance?._inGame ?? false;
@@ -753,6 +828,15 @@ public class Plugin
         var cfg = PluginConfig.Instance;
         if (cfg?.Enabled != true)
             return;
+
+        // Per-event kill switch (category-page toggle): stops this effect class
+        // whether it was triggered by a websocket payload or an IRC event. Unknown
+        // event types are never gated so custom websocket events keep working.
+        if (EventTypeDisabled(type, cfg))
+        {
+            NoteCosmeticController.VerboseLog($"Stream event disabled: type={type} from {user}");
+            return;
+        }
 
         // Lazy one-shot: if detection hasn't finished yet (first few events before
         // the deferred coroutine fires), force an immediate refresh so the flags
@@ -902,7 +986,7 @@ public class Plugin
             if (string.Equals(type, "bits", StringComparison.OrdinalIgnoreCase))
             {
                 evtType = StreamEventType.Bits;
-                noteCount = Mathf.Max(Mathf.FloorToInt(amount / (float)GetBitTierBlockRatio(amount)), 1);
+                noteCount = Mathf.Max(Mathf.CeilToInt(amount / (float)GetBitTierBlockRatio(amount)), 1);
                 bitsParticle = GetBitTierParticleConfig(amount);
             }
             else
@@ -928,6 +1012,29 @@ public class Plugin
                 text: text, textConfig: textConfig, textNoteCount: textNoteCount, amount: amount);
             NoteCosmeticController.QueueStreamEvent(evt);
         }
+    }
+
+    // Maps an event type (and its accepted aliases/synonyms) to its per-category
+    // kill switch. Returns true when that category's toggle is OFF.
+    private static bool EventTypeDisabled(string type, PluginConfig cfg)
+    {
+        if (string.Equals(type, "bomb", StringComparison.OrdinalIgnoreCase))
+            return !cfg.EventBombEnabled;
+
+        if (string.Equals(type, "bits", StringComparison.OrdinalIgnoreCase))
+            return !cfg.EventBitsEnabled;
+
+        if (string.Equals(type, "subscription", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "sub", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "subscription_gift", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "gift", StringComparison.OrdinalIgnoreCase))
+            return !cfg.EventSubEnabled;
+
+        if (string.Equals(type, "raid", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "host", StringComparison.OrdinalIgnoreCase))
+            return !cfg.EventRaidEnabled;
+
+        return false;
     }
 
     internal static int GetBitTierBlockRatio(int amount)

@@ -1,3 +1,16 @@
+# 1.1.6
+- **Big feature**: You may now use the mod without the need of a bot if you want. Only your twitch channel name. (Though I still recommend the websocket setup instead) (Thanks qlulezz for the idea)
+- Twitch channel name method supports: Subs, Bits, Raids, !bomb and !throw
+- Each category listed can now be individually turned off. If you want to momentarily turn off something even if you have it set up via websocket or irc. (Thanks qlulezz for the idea)
+- Bit events have new default costs: `<100: 1` - `≥100:5` - `≥1000: 25` - `≥5000: 50` - `≥10000: 50`. Also, it will always round up.
+- Potential fix: In some setups. When "throw" was used after restarting a map, it would throw the block ahead of the user. That shouldn't happen anymore. (Thanks for test Sehria)
+- Chat panel: LOTS of events now show in chat. Like subs, bits, watch streaks, etc. No follows or channel points though.
+- Emote Throw/Rain: Fixed a smol bug with sizes other than default. It would spawn at default size and resize a frame later. 
+- Flashbang: Any that queue (from the mod being paused or while playing a "protected map") will no longer play instantly in the next valid map. They will now have a random 20 - 60 second wait before activating. Now you can't prepare for them :P
+- Flashbang: It now has a sound selector, goes of when flash activates.
+- CubaAnimation: New addition `Eject`. Among Us-like eject animation.
+- Test Dashboard: `generator.html` now gets copied to `\UserData\StreamReactive`. Now you can open the page/configure your bot without having to open the game.
+
 # 1.1.5
 - Dissolved (invisible) notes in noodle maps should no longer have effects applied to them. Like the Paradigm gimmick
 

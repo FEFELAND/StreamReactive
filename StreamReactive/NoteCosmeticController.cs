@@ -116,7 +116,7 @@ internal sealed class StreamEvent
 
 internal static class NoteCosmeticController
 {
-    private static readonly List<StreamEvent> _eventQueue = new();
+    private static readonly Queue<StreamEvent> _eventQueue = new();
     private static readonly List<StreamEvent> _activeEvents = new();
 
     private static readonly HashSet<NoteController> _bombedNotes = new();
@@ -183,8 +183,7 @@ internal static class NoteCosmeticController
                 target = _activeEvents[0];
             else if (_eventQueue.Count > 0)
             {
-                target = _eventQueue[0];
-                _eventQueue.RemoveAt(0);
+                target = _eventQueue.Dequeue();
             }
             else
                 return;
@@ -416,7 +415,7 @@ internal static class NoteCosmeticController
         if (evt == null) return;
         lock (_eventQueue)
         {
-            _eventQueue.Add(evt);
+            _eventQueue.Enqueue(evt);
         }
         VerboseLog($"QueueStreamEvent: queued {evt.Type} user={evt.User} notes={evt.NotesRemaining} text={evt.TextRemaining} bombVisual={evt.BombVisualsRemaining} display={evt.SubDisplayText}");
     }
@@ -481,13 +480,18 @@ internal static class NoteCosmeticController
             if (anyBomb)
             {
                 // Bombs coexist with other bombs: queued bombs may join, even
-                // skipping over non-bomb events that arrived in between.
-                for (int i = 0; i < _eventQueue.Count; i++)
+                // skipping over non-bomb events that arrived in between. Non-bomb
+                // events are held aside and re-queued (order preserved) so nothing
+                // is every dropped.
+                var holdback = new List<StreamEvent>(_eventQueue.Count);
+                while (_eventQueue.Count > 0)
                 {
-                    var evt = _eventQueue[i];
-                    if (!evt.IsBomb) continue;
-                    _eventQueue.RemoveAt(i);
-                    i--;
+                    var evt = _eventQueue.Dequeue();
+                    if (!evt.IsBomb)
+                    {
+                        holdback.Add(evt);
+                        continue;
+                    }
                     _activeEvents.Add(evt);
                     StartEvent(evt);
                     if (evt.IsComplete)
@@ -496,14 +500,15 @@ internal static class NoteCosmeticController
                         _activeEvents.Remove(evt);
                     }
                 }
+                for (int i = 0; i < holdback.Count; i++)
+                    _eventQueue.Enqueue(holdback[i]);
                 return;
             }
 
             // Nothing active: start the next queued event in order.
             while (_eventQueue.Count > 0)
             {
-                var evt = _eventQueue[0];
-                _eventQueue.RemoveAt(0);
+                var evt = _eventQueue.Dequeue();
                 _activeEvents.Add(evt);
                 StartEvent(evt);
                 if (evt.IsComplete)
@@ -2338,6 +2343,27 @@ internal static class NoteCosmeticController
         return Color.HSVToRGB(hue, 1f, 1f);
     }
 
+    // Destroys a bomb child GameObject AND the per-note Material instance that
+    // ApplyBombVisual created via renderer.material. Destroying only the GO leaks
+    // the instance Material until the next UnloadUnusedAssets - an insane bomb
+    // session piles up hundreds of Materials that only a restart frees.
+    private static void DestroyBombChild(GameObject bombChild)
+    {
+        if (bombChild == null) return;
+        var renderer = bombChild.GetComponent<MeshRenderer>();
+        // Deactivate first: Object.Destroy is deferred to end of frame, and a
+        // pooled note is re-shown immediately on re-init - an active bomb
+        // child would linger on the fresh note for a frame otherwise.
+        bombChild.SetActive(false);
+        if (renderer != null)
+        {
+            var mat = renderer.sharedMaterial;
+            if (mat != null)
+                UnityEngine.Object.Destroy(mat);
+        }
+        UnityEngine.Object.Destroy(bombChild);
+    }
+
     private static void RestoreAllDisabledByBomb()
     {
         foreach (var kvp in _disabledByBomb)
@@ -2352,12 +2378,7 @@ internal static class NoteCosmeticController
         // Destroy all bomb children created for each note.
         foreach (var kvp in _bombChildByNote)
         {
-            if (kvp.Value == null) continue;
-            // Deactivate first: Object.Destroy is deferred to end of frame, and a
-            // pooled note is re-shown immediately on re-init - an active bomb
-            // child would linger on the fresh note for a frame otherwise.
-            kvp.Value.SetActive(false);
-            UnityEngine.Object.Destroy(kvp.Value);
+            DestroyBombChild(kvp.Value);
         }
         _bombChildByNote.Clear();
 
@@ -2382,13 +2403,9 @@ internal static class NoteCosmeticController
 
         // Destroy the bomb child we created for this note FIRST, so the bomb
         // never lingers once the note is un-bombed.
-        if (_bombChildByNote.TryGetValue(note, out var bombChild) && bombChild != null)
+        if (_bombChildByNote.TryGetValue(note, out var bombChild))
         {
-            // Deactivate first: Object.Destroy is deferred to end of frame, and a
-            // pooled note is re-shown immediately on re-init - an active bomb
-            // child would linger on the fresh note for a frame otherwise.
-            bombChild.SetActive(false);
-            UnityEngine.Object.Destroy(bombChild);
+            DestroyBombChild(bombChild);
             _bombChildByNote.Remove(note);
         }
 

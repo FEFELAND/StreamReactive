@@ -114,6 +114,7 @@ internal sealed class FlashbangController : MonoBehaviour
         _lastHeadName = null;
 
         NoteCosmeticController.VerboseLog($"Flashbang: blinding for {duration:F1}s at {maxAlpha * 100f:F0}% opacity.");
+        SoundManager.Play(cfg?.FlashbangSoundFile ?? "", cfg?.FlashbangSoundVolume ?? 0.8f);
         _routine = StartCoroutine(RunFlash(duration, maxAlpha, fade));
 
         SpawnViewerText(cfg!, duration);

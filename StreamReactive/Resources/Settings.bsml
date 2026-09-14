@@ -17,9 +17,13 @@
         <button id="nav-flashbang" text="Flashbang"  on-click="select-flashbang" hover-hint="White-out flash effect settings"/>
         <button id="nav-projection" text="Projection"  on-click="select-projection" hover-hint="3D particle projection effects"/>
         <button id="nav-throw" text="Throw"  on-click="select-throw" hover-hint="Capsule (throw target) and projectile settings"/>
-        <button id="nav-emotes" text="Emotes"  on-click="select-emotes" hover-hint="Twitch emote throw and rain effects"/>
-        <button id="nav-chat" text="Chat" on-click="select-chat" hover-hint="Twitch chat panel settings"/>
         <button id="nav-about" text="About"  on-click="select-about" hover-hint="Mod info"/>
+        <horizontal bg="round-rect-panel" pad="0">
+          <text text="— Twitch —" font-size="3" font-weight="Bold" align="Center"/>
+        </horizontal>
+        <button id="nav-twitch" text="Config" on-click="select-twitch" hover-hint="Twitch connection settings"/>
+        <button id="nav-chat" text="Chat" on-click="select-chat" hover-hint="Twitch chat panel settings"/>
+        <button id="nav-emotes" text="Emotes"  on-click="select-emotes" hover-hint="Twitch emote throw and rain effects"/>
       </sr-scroll>
     </vertical>
 
@@ -39,7 +43,6 @@
           <horizontal bg="round-rect-panel" pad="2">
             <text text="Connect your bot to ws://localhost:PORT/stream as a WebSocket client." font-size="2.8" word-wrapping="true" align="TopLeft"/>
           </horizontal>
-          <string-setting text="Twitch Channel" value="twitch-channel-name" apply-on-change="true" bind-value="true" hover-hint="Your Twitch username (without the @) - used by emotes and the Chat overlay"/>
           <horizontal bg="round-rect-panel" pad="1">
             <text text="Note Outline" font-size="3.5" font-weight="Bold"/>
           </horizontal>
@@ -60,6 +63,7 @@
 
       <vertical id="page-bomb" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
         <sr-scroll-tall>
+          <bool-setting text="Bomb Enabled" value="event-bomb-enabled" apply-on-change="true" bind-value="true" hover-hint="Master switch for bomb effects from any source (websocket or IRC chat command). Off ignores all bomb triggers."/>
           <bool-setting text="Bomb Cosmetics" value="bomb-cosmetic-enabled" apply-on-change="true" bind-value="true" hover-hint="Swap affected notes for a bomb visual during the effect."/>
           <dropdown-list-setting text="Color Mode" value="bomb-color-mode" choices="bomb-color-mode-options" apply-on-change="true" bind-value="true"/>
           <color-setting id="bomb-particle-color" text="Particle Color" value="bomb-particle-color" apply-on-change="true" bind-value="true" hover-hint="Used when Color Mode is Static"/>
@@ -88,6 +92,7 @@
         <tab tab-name="Global" tags="bits-pages">
           <vertical child-control-height="false" spacing="~sp" horizontal-fit="PreferredSize" pref-width="~page-width">
             <sr-scroll>
+              <bool-setting text="Bits Enabled" value="event-bits-enabled" apply-on-change="true" bind-value="true" hover-hint="Master switch for bits/cheer effects from any source (websocket or IRC). Off ignores all bit triggers."/>
               <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="bits-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of floating bit text. 8 is the default."/>
               <slider-setting show-buttons="true" text="Text Lifetime" min="0.5" max="10" increment="0.5" value="bits-text-lifetime" apply-on-change="true" bind-value="true"/>
               <bool-setting text="Text on Every Event" value="text-spawn-every-event" apply-on-change="true" bind-value="true"/>
@@ -183,6 +188,7 @@
 
       <vertical id="page-subs" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
         <sr-scroll-tall>
+          <bool-setting text="Subscriptions Enabled" value="event-sub-enabled" apply-on-change="true" bind-value="true" hover-hint="Master switch for subscription effects (new subs, resubs and gifted subs) from any source. Off ignores all sub triggers."/>
           <slider-setting show-buttons="true" text="Timer Duration" min="1" max="60" increment="0.5" value="sub-timer-duration" apply-on-change="true" bind-value="true"/>
           <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="sub-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of the floating sub message text. 10 is the default."/>
           <bool-setting text="Enable Trails" value="sub-trail-enabled" apply-on-change="true" bind-value="true"/>
@@ -201,6 +207,7 @@
 
       <vertical id="page-raid" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
         <sr-scroll-tall>
+          <bool-setting text="Raids Enabled" value="event-raid-enabled" apply-on-change="true" bind-value="true" hover-hint="Master switch for raid effects from any source (websocket or IRC). Off ignores all raid triggers."/>
           <slider-setting show-buttons="true" text="Timer Duration" min="1" max="60" increment="0.5" value="raid-timer-duration" apply-on-change="true" bind-value="true" hover-hint="Effects last at least this long. If many raiders, effects continue until all are exhausted."/>
           <slider-setting show-buttons="true" text="Blocks per Raider" min="1" max="100" increment="1" value="raid-multiplier" integer-only="true" apply-on-change="true" bind-value="true" hover-hint="1 = one block per raider"/>
           <slider-setting show-buttons="true" text="Text Size" min="0.5" max="40" increment="0.5" value="raid-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of floating raid text. 8 is the default."/>
@@ -219,17 +226,24 @@
 
       <vertical id="page-flashbang" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
         <sr-scroll-tall>
+          <bool-setting text="Flashbang Enabled" value="event-flashbang-enabled" apply-on-change="true" bind-value="true" hover-hint="Master switch for flashbang effects from any source (websocket or IRC). Off ignores all flashbang triggers."/>
           <slider-setting show-buttons="true" text="Duration" min="0.5" max="10" increment="0.5" value="flashbang-duration" apply-on-change="true" bind-value="true" hover-hint="Seconds the flash lasts. The last Fade Out seconds of it are spent dimming back to clear."/>
           <slider-setting show-buttons="true" text="Opacity" min="0" max="100" increment="5" value="flashbang-opacity" apply-on-change="true" bind-value="true" hover-hint="How opaque the flash gets at its peak. 100 = fully blind, 50 = bright wash you can still sort of see through."/>
           <slider-setting show-buttons="true" text="Fade Out" min="0" max="8" increment="0.25" value="flashbang-fadeout" apply-on-change="true" bind-value="true" hover-hint="Seconds spent fading from peak opacity back to nothing at the end of the flash. 0 = stays at full strength until it pops off instantly."/>
           <string-setting text="Viewer Text" value="flashbang-viewer-text" apply-on-change="true" hover-hint="Text shown to viewers when the streamer is blinded. Leave empty to hide."/>
           <slider-setting show-buttons="true" text="Viewer Text Size" min="0.5" max="10" increment="0.25" value="flashbang-viewer-text-size" apply-on-change="true" bind-value="true" hover-hint="Size of the viewer text shown while the streamer is blinded."/>
           <color-setting text="Viewer Text Color" value="flashbang-viewer-text-color" apply-on-change="true" hover-hint="Color of the viewer visibility text."/>
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Sound (.ogg)" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <dropdown-list-setting id="flashbang-sound" text="Sound File" choices="sound-file-options" value="flashbang-sound-file" apply-on-change="true" bind-value="true" hover-hint="OGG file from UserData/StreamReactive/Sounds played each time a flash goes off (including deferred ones replayed later). None = silent."/>
+          <slider-setting show-buttons="true" text="Sound Volume" min="0" max="1" increment="0.01" value="flashbang-sound-volume" apply-on-change="true" bind-value="true" hover-hint="How loud the flash sound plays. 0 = mute, 1 = 100%."/>
         </sr-scroll-tall>
       </vertical>
 
       <vertical id="page-projection" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-width="true" child-control-height="false" spacing="~sp">
         <sr-scroll-tall>
+          <bool-setting text="Projection Enabled" value="event-projection-enabled" apply-on-change="true" bind-value="true" hover-hint="Master switch for projection effects from any source (websocket or IRC). Off ignores all projection triggers."/>
           <horizontal bg="round-rect-panel" pad="1">
             <text text="Global defaults — per-trigger overrides via websocket message (name, color, duration, size, position x/y/z, rotation x/y/z)." font-size="2.5" word-wrapping="true" color="#888"/>
           </horizontal>
@@ -355,15 +369,48 @@
         <sr-scroll-tall>
           <bool-setting text="Chat Overlay Enabled" value="chat-enabled" apply-on-change="true" bind-value="true"/>
           <horizontal bg="round-rect-panel" pad="2">
-            <text text="Requires a Twitch Channel in the General tab." font-size="2.8" word-wrapping="true" align="TopLeft"/>
+            <text text="Requires a Twitch Channel in the Twitch tab." font-size="2.8" word-wrapping="true" align="TopLeft"/>
           </horizontal>
           <slider-setting show-buttons="true" text="Panel Width" min="20" max="120" increment="1" value="chat-width" apply-on-change="true" bind-value="true"/>
           <slider-setting show-buttons="true" text="Panel Height" min="20" max="160" increment="1" value="chat-height" apply-on-change="true" bind-value="true"/>
           <slider-setting show-buttons="true" text="Font Size" min="1" max="10" increment="0.1" value="chat-font-size" apply-on-change="true" bind-value="true" hover-hint="Size of the chat text. Larger sizes show fewer lines in the same panel."/>
+          <slider-setting show-buttons="true" text="Render Order" min="-20" max="20" increment="1" value="chat-sorting-order" apply-on-change="true" bind-value="true" hover-hint="Canvas draw order. Default 0 lets overlapping menus, the pause menu and results screens draw on top of the panel. Lower values push it further behind; higher values (20) bring it above almost everything."/>
           <button text="Reset Position" on-click="reset-chat-position" hover-hint="Move the chat panel back to its default spawn point."/>
           <color-setting text="Username Color" value="chat-name-color" apply-on-change="true" bind-value="true" hover-hint="Fallback color for usernames that don't have their own Twitch chat color set."/>
           <color-setting text="Message Text Color" value="chat-text-color" apply-on-change="true" bind-value="true" hover-hint="Color of the chat message text."/>
           <bool-setting text="Force Username Color" value="chat-force-name-color" apply-on-change="true" bind-value="true" hover-hint="Ignore the color each viewer set on Twitch and always use the Username Color above for every username."/>
+          <bool-setting text="Show Twitch System Events" value="chat-panel-show-system-events" apply-on-change="true" bind-value="true" hover-hint="Show subs, gifts, raids, watch streaks, timeouts, bans and chat-mode changes as colored lines in the panel. Cheers always show but respect this toggle too."/>
+          <color-setting text="System Event Color" value="chat-system-event-color" apply-on-change="true" bind-value="true" hover-hint="Color of event lines (subs, gifts, raids, watch streaks, timeouts, bans, chat-mode changes)."/>
+          <bool-setting text="Allow Shared Chat" value="chat-panel-allow-shared-chat" apply-on-change="true" bind-value="true" hover-hint="Show messages relayed from partner channels into your chat by Twitch Shared Chat. They appear marked [SHARED] when enabled; off hides them entirely."/>
+        </sr-scroll-tall>
+      </vertical>
+
+      <vertical id="page-twitch" active="false" horizontal-fit="PreferredSize" pref-width="~page-width" child-control-height="false" spacing="~sp">
+        <sr-scroll-tall>
+          <string-setting text="Twitch Channel" value="twitch-channel-name" apply-on-change="true" bind-value="true" hover-hint="Your Twitch username (without the @) - used by emotes, the Chat overlay and the IRC-triggered events below"/>
+
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Twitch Chat Events" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <horizontal bg="round-rect-panel" pad="2">
+            <text text="I would highly suggest using a stream bot and the websocket route. That will give you the most control over everything. But if you want, you can enable basic control here without the need of a bot. Just your Twitch channel name above." font-size="2.7" word-wrapping="true" align="TopLeft"/>
+          </horizontal>
+
+          <bool-setting text="Cheers (Bits)" value="irc-bits-enabled" apply-on-change="true" bind-value="true" hover-hint="Trigger the bits effect when a viewer cheers bits in chat."/>
+          <bool-setting text="Subscriptions" value="irc-sub-enabled" apply-on-change="true" bind-value="true" hover-hint="Trigger the sub effect for new subscriptions and resubs."/>
+          <bool-setting text="Gifted Subs" value="irc-gift-enabled" apply-on-change="true" bind-value="true" hover-hint="Trigger the sub effect for gifted subscriptions (single gifts and mystery/mass gifts)."/>
+          <bool-setting text="Raids" value="irc-raid-enabled" apply-on-change="true" bind-value="true" hover-hint="Trigger the raid effect when another channel raids you."/>
+
+          <horizontal bg="round-rect-panel" pad="1">
+            <text text="Chat Commands" font-size="3.5" font-weight="Bold"/>
+          </horizontal>
+          <bool-setting text="Allow Chat Bombs" value="irc-bomb-enabled" apply-on-change="true" bind-value="true" hover-hint="When a viewer types the command below in chat, a bomb effect fires from that viewer."/>
+          <string-setting text="Bomb Command" value="irc-bomb-command" apply-on-change="true" bind-value="true" placeholder="!bomb" hover-hint="The exact first word of a chat message that triggers a bomb (e.g. !bomb). The command must match word-for-word - 'bomb' alone will not trigger '!bomb'."/>
+          <bool-setting text="Allow Viewer Text" value="irc-bomb-allow-text" apply-on-change="true" bind-value="true" hover-hint="Let viewers add their own message after the command (e.g. '!bomb hello there'), shown as the bomb's floating text. Off = the bomb only shows the viewer's name."/>
+          <slider-setting show-buttons="true" text="Bomb Cooldown (seconds)" min="0" max="120" increment="1" integer-only="true" value="irc-bomb-cooldown" apply-on-change="true" bind-value="true" hover-hint="Minimum seconds between chat bombs (shared across all viewers). 0 = no limit."/>
+          <bool-setting text="Allow Chat Throws" value="irc-throw-enabled" apply-on-change="true" bind-value="true" hover-hint="When a viewer types the command below in chat, a block/note is thrown at you in-game."/>
+          <string-setting text="Throw Command" value="irc-throw-command" apply-on-change="true" bind-value="true" placeholder="!throw" hover-hint="The exact first word of a chat message that throws a single block (e.g. !throw). The command must match word-for-word - 'throw' alone will not trigger '!throw'. Any text after the command is ignored."/>
+          <slider-setting show-buttons="true" text="Throw Cooldown (seconds)" min="0" max="120" increment="1" integer-only="true" value="irc-throw-cooldown" apply-on-change="true" bind-value="true" hover-hint="Minimum seconds between chat throws (shared across all viewers). 0 = no limit."/>
         </sr-scroll-tall>
       </vertical>
 

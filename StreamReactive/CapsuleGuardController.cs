@@ -14,6 +14,10 @@ internal sealed class CapsuleGuardController : MonoBehaviour
     private const string CapsuleObjectName = "StreamReactiveGuardCapsule";
     private const float BoneRescanInterval = 2f;
 
+    internal const string AttachModeHeadset = "Headset";
+    internal const string AttachModeAvatarBone = "Avatar Bone";
+    internal const string AttachModePlatformCenter = "Platform Center";
+
     // World height of the platform surface the bounce floor rests on.
     private const float FloorSurfaceY = 0f;
 
@@ -39,6 +43,7 @@ internal sealed class CapsuleGuardController : MonoBehaviour
         var go = new GameObject("StreamReactiveCapsuleGuard");
         DontDestroyOnLoad(go);
         _instance = go.AddComponent<CapsuleGuardController>();
+        EnsureSceneHook();
     }
 
     /// <summary>Best available point to aim projectiles at (capsule center if alive).</summary>
@@ -109,20 +114,41 @@ internal sealed class CapsuleGuardController : MonoBehaviour
     internal static CapsuleCollider? ActiveCollider => _instance?._collider;
 
     // Camera.main is null during normal gameplay (Beat Saber untags the gameplay
-    // camera), so we resolve the real view camera once and refresh if it dies.
+    // camera), so we resolve the real view camera and cache it. The cache is
+    // cleared on every scene (re)load, so a stale camera-mod camera captured
+    // across a song restart can never pin the capsule's aim position.
     private static Camera? _cachedViewCam;
+    private static bool _sceneHookSubscribed;
 
     internal static Camera? GetViewCamera()
     {
         if (_cachedViewCam != null && _cachedViewCam.isActiveAndEnabled)
             return _cachedViewCam;
 
+        _cachedViewCam = FindViewCamera();
+        return _cachedViewCam;
+    }
+
+    private static void EnsureSceneHook()
+    {
+        if (_sceneHookSubscribed)
+            return;
+        _sceneHookSubscribed = true;
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoadedForCamera;
+    }
+
+    private static void OnSceneLoadedForCamera(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        _cachedViewCam = null;
+        NoteCosmeticController.VerboseLog("CapsuleGuard: camera cache cleared on scene load.");
+    }
+
+    /// <summary>Picks the camera that actually renders the player's view.</summary>
+    private static Camera? FindViewCamera()
+    {
         var cam = Camera.main;
         if (cam != null && cam.isActiveAndEnabled)
-        {
-            _cachedViewCam = cam;
             return cam;
-        }
 
         // Camera.main is unavailable (normal play): pick the camera that actually
         // renders the player's view. Prefer one named "MainCamera" (Beat Saber's
@@ -143,6 +169,15 @@ internal sealed class CapsuleGuardController : MonoBehaviour
             if (n.IndexOf("Spectator", StringComparison.OrdinalIgnoreCase) >= 0) continue;
             if (n.IndexOf("Mirror", StringComparison.OrdinalIgnoreCase) >= 0) continue;
             if (n.IndexOf("Cam2", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            if (n.IndexOf("Camera2", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            // Camera-mod cameras (Camera2/NalulunaUtils, SmoothCamera, etc.) are
+            // static/kinematic and sit at fixed positions down the track; they
+            // must never be treated as the HMD view or the capsule pins to them.
+            if (n.IndexOf("Smooth", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            if (n.IndexOf("Facecam", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            if (n.IndexOf("Third Person", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            if (n.IndexOf("BSLogo", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+            if (n.IndexOf("pointer", StringComparison.OrdinalIgnoreCase) >= 0) continue;
 
             var p = candidate.transform.position;
             var plausible = Mathf.Abs(p.x) < 200f && Mathf.Abs(p.z) < 200f
@@ -157,8 +192,7 @@ internal sealed class CapsuleGuardController : MonoBehaviour
                 best = candidate;
         }
 
-        _cachedViewCam = named ?? best;
-        return _cachedViewCam;
+        return named ?? best;
     }
 
     private void EnsureCapsuleObject()
@@ -292,12 +326,12 @@ internal sealed class CapsuleGuardController : MonoBehaviour
     private Vector3 ResolveAnchor()
     {
         var cfg = PluginConfig.Instance!;
-        var mode = cfg.CapsuleAttachMode ?? "Headset";
+        var mode = cfg.CapsuleAttachMode ?? AttachModeHeadset;
 
-        if (string.Equals(mode, "Platform Center", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(mode, AttachModePlatformCenter, StringComparison.OrdinalIgnoreCase))
             return Vector3.zero;
 
-        if (string.Equals(mode, "Avatar Bone", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(mode, AttachModeAvatarBone, StringComparison.OrdinalIgnoreCase))
         {
             var bone = ResolveBone(cfg.CapsuleBonePath);
             if (bone != null)

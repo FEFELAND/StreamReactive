@@ -14,7 +14,7 @@ namespace StreamReactive;
 public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewController
 {
     private const string DefaultPage = "general";
-    private static readonly string[] PageKeys = { "general", "bomb", "bits", "subs", "raid", "flashbang", "projection", "throw", "emotes", "chat", "about" };
+    private static readonly string[] PageKeys = { "general", "bomb", "bits", "subs", "raid", "flashbang", "projection", "throw", "emotes", "chat", "twitch", "about" };
 
     /// <summary>True only while the Throw settings page is on screen; drives the capsule preview visual.</summary>
     internal static bool ThrowPreviewVisible { get; private set; }
@@ -72,6 +72,9 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
     [UIObject("page-chat")]
     private GameObject? _pageChat = null!;
 
+    [UIObject("page-twitch")]
+    private GameObject? _pageTwitch = null!;
+
     [UIObject("page-about")]
     private GameObject? _pageAbout = null!;
 
@@ -104,6 +107,9 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
 
     [UIObject("nav-chat")]
     private GameObject? _navChat = null!;
+
+    [UIObject("nav-twitch")]
+    private GameObject? _navTwitch = null!;
 
     [UIObject("nav-about")]
     private GameObject? _navAbout = null!;
@@ -394,6 +400,9 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
     [UIAction("select-chat")]
     private void SelectChat() => SelectPage("chat");
 
+    [UIAction("select-twitch")]
+    private void SelectTwitch() => SelectPage("twitch");
+
     [UIAction("select-about")]
     private void SelectAbout() => SelectPage("about");
 
@@ -492,6 +501,7 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
             "throw" => _pageThrow,
             "emotes" => _pageEmotes,
             "chat" => _pageChat,
+            "twitch" => _pageTwitch,
             "about" => _pageAbout,
             _ => null
         };
@@ -511,6 +521,7 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
             "throw" => _navThrow,
             "emotes" => _navEmotes,
             "chat" => _navChat,
+            "twitch" => _navTwitch,
             "about" => _navAbout,
             _ => null
         };
@@ -734,6 +745,48 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
         }
     }
 
+    [UIValue("event-bomb-enabled")]
+    public bool EventBombEnabled
+    {
+        get => Config?.EventBombEnabled ?? true;
+        set { if (Config != null) Config.EventBombEnabled = value; }
+    }
+
+    [UIValue("event-bits-enabled")]
+    public bool EventBitsEnabled
+    {
+        get => Config?.EventBitsEnabled ?? true;
+        set { if (Config != null) Config.EventBitsEnabled = value; }
+    }
+
+    [UIValue("event-sub-enabled")]
+    public bool EventSubEnabled
+    {
+        get => Config?.EventSubEnabled ?? true;
+        set { if (Config != null) Config.EventSubEnabled = value; }
+    }
+
+    [UIValue("event-raid-enabled")]
+    public bool EventRaidEnabled
+    {
+        get => Config?.EventRaidEnabled ?? true;
+        set { if (Config != null) Config.EventRaidEnabled = value; }
+    }
+
+    [UIValue("event-flashbang-enabled")]
+    public bool EventFlashbangEnabled
+    {
+        get => Config?.EventFlashbangEnabled ?? true;
+        set { if (Config != null) Config.EventFlashbangEnabled = value; }
+    }
+
+    [UIValue("event-projection-enabled")]
+    public bool EventProjectionEnabled
+    {
+        get => Config?.EventProjectionEnabled ?? true;
+        set { if (Config != null) Config.EventProjectionEnabled = value; }
+    }
+
     [UIValue("include-bomb-notes")]
     public bool IncludeBombNotes
     {
@@ -870,28 +923,28 @@ public sealed class StreamReactiveSettingsViewController : BSMLAutomaticViewCont
     [UIValue("bit-tier-10000-block-ratio")]
     public int BitTier10000BlockRatio
     {
-        get => Config?.BitTier10000BlockRatio ?? 1;
+        get => Config?.BitTier10000BlockRatio ?? 50;
         set { if (Config != null) Config.BitTier10000BlockRatio = value; }
     }
 
     [UIValue("bit-tier-5000-block-ratio")]
     public int BitTier5000BlockRatio
     {
-        get => Config?.BitTier5000BlockRatio ?? 1;
+        get => Config?.BitTier5000BlockRatio ?? 50;
         set { if (Config != null) Config.BitTier5000BlockRatio = value; }
     }
 
     [UIValue("bit-tier-1000-block-ratio")]
     public int BitTier1000BlockRatio
     {
-        get => Config?.BitTier1000BlockRatio ?? 1;
+        get => Config?.BitTier1000BlockRatio ?? 25;
         set { if (Config != null) Config.BitTier1000BlockRatio = value; }
     }
 
     [UIValue("bit-tier-100-block-ratio")]
     public int BitTier100BlockRatio
     {
-        get => Config?.BitTier100BlockRatio ?? 1;
+        get => Config?.BitTier100BlockRatio ?? 5;
         set { if (Config != null) Config.BitTier100BlockRatio = value; }
     }
 
@@ -1261,6 +1314,20 @@ public int SubParticleCount
     {
         get => Config?.FlashbangViewerTextColor ?? Color.white;
         set { if (Config != null) Config.FlashbangViewerTextColor = value; }
+    }
+
+    [UIValue("flashbang-sound-file")]
+    public string FlashbangSound
+    {
+        get => SoundManager.DisplayName(Config?.FlashbangSoundFile ?? "");
+        set { if (Config != null) Config.FlashbangSoundFile = SoundManager.ConfigName(value); }
+    }
+
+    [UIValue("flashbang-sound-volume")]
+    public float FlashbangSoundVolume
+    {
+        get => Config?.FlashbangSoundVolume ?? 0.8f;
+        set { if (Config != null) Config.FlashbangSoundVolume = Mathf.Clamp01(value); }
     }
 
     [UIValue("projection-duration")]
@@ -1671,6 +1738,13 @@ public int SubParticleCount
         set { if (Config != null) Config.ChatFontSize = Mathf.Clamp(value, 1f, 10f); }
     }
 
+    [UIValue("chat-sorting-order")]
+    public float ChatSortingOrder
+    {
+        get => Config?.ChatSortingOrder ?? 0;
+        set { if (Config != null) Config.ChatSortingOrder = Mathf.RoundToInt(Mathf.Clamp(value, -20f, 20f)); }
+    }
+
     [UIValue("chat-name-color")]
     public Color ChatNameColor
     {
@@ -1690,6 +1764,104 @@ public int SubParticleCount
     {
         get => Config?.ChatForceNameColor ?? false;
         set { if (Config != null) Config.ChatForceNameColor = value; }
+    }
+
+    [UIValue("chat-panel-show-system-events")]
+    public bool ChatPanelShowSystemEvents
+    {
+        get => Config?.ChatPanelShowSystemEvents ?? true;
+        set { if (Config != null) Config.ChatPanelShowSystemEvents = value; }
+    }
+
+    [UIValue("chat-system-event-color")]
+    public Color ChatSystemEventColor
+    {
+        get => Config?.ChatSystemEventColor ?? new Color(0.72f, 0.55f, 1f);
+        set { if (Config != null) Config.ChatSystemEventColor = value; }
+    }
+
+    [UIValue("chat-panel-allow-shared-chat")]
+    public bool ChatPanelAllowSharedChat
+    {
+        get => Config?.ChatPanelAllowSharedChat ?? true;
+        set { if (Config != null) Config.ChatPanelAllowSharedChat = value; }
+    }
+
+    [UIValue("irc-bits-enabled")]
+    public bool IrcBitsEnabled
+    {
+        get => Config?.IrcBitsEnabled ?? false;
+        set { if (Config != null) Config.IrcBitsEnabled = value; }
+    }
+
+    [UIValue("irc-sub-enabled")]
+    public bool IrcSubEnabled
+    {
+        get => Config?.IrcSubEnabled ?? false;
+        set { if (Config != null) Config.IrcSubEnabled = value; }
+    }
+
+    [UIValue("irc-gift-enabled")]
+    public bool IrcGiftEnabled
+    {
+        get => Config?.IrcGiftEnabled ?? false;
+        set { if (Config != null) Config.IrcGiftEnabled = value; }
+    }
+
+    [UIValue("irc-raid-enabled")]
+    public bool IrcRaidEnabled
+    {
+        get => Config?.IrcRaidEnabled ?? false;
+        set { if (Config != null) Config.IrcRaidEnabled = value; }
+    }
+
+    [UIValue("irc-bomb-enabled")]
+    public bool IrcBombEnabled
+    {
+        get => Config?.IrcBombEnabled ?? false;
+        set { if (Config != null) Config.IrcBombEnabled = value; }
+    }
+
+    [UIValue("irc-bomb-command")]
+    public string IrcBombCommand
+    {
+        get => Config?.IrcBombCommand ?? "!bomb";
+        set { if (Config != null) Config.IrcBombCommand = value ?? ""; }
+    }
+
+    [UIValue("irc-bomb-allow-text")]
+    public bool IrcBombAllowText
+    {
+        get => Config?.IrcBombAllowTextEnabled ?? true;
+        set { if (Config != null) Config.IrcBombAllowTextEnabled = value; }
+    }
+
+    [UIValue("irc-bomb-cooldown")]
+    public int IrcBombCooldown
+    {
+        get => Config?.IrcBombCooldown ?? 10;
+        set { if (Config != null) Config.IrcBombCooldown = Mathf.Clamp(value, 0, 120); }
+    }
+
+    [UIValue("irc-throw-enabled")]
+    public bool IrcThrowEnabled
+    {
+        get => Config?.IrcThrowEnabled ?? false;
+        set { if (Config != null) Config.IrcThrowEnabled = value; }
+    }
+
+    [UIValue("irc-throw-command")]
+    public string IrcThrowCommand
+    {
+        get => Config?.IrcThrowCommand ?? "!throw";
+        set { if (Config != null) Config.IrcThrowCommand = value ?? ""; }
+    }
+
+    [UIValue("irc-throw-cooldown")]
+    public int IrcThrowCooldown
+    {
+        get => Config?.IrcThrowCooldown ?? 10;
+        set { if (Config != null) Config.IrcThrowCooldown = Mathf.Clamp(value, 0, 120); }
     }
 
     [UIValue("emote-throw-enabled")]

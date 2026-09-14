@@ -54,7 +54,7 @@
       <option value="subscription_gift">Gift Sub</option>
       <option value="raid">Raid</option>
       <option value="flashbang">Flashbang</option>
-      <option value="cubeanimation">Lurk (Cube Animation)</option>
+      <option value="cubeanimation">Cube Animation (Lurk / Eject)</option>
       <option value="throw">Throw Projectiles</option>
       <option value="projection">Projection</option>
       <option value="socket">Socket (Enable / Disable)</option>
@@ -143,12 +143,23 @@ const EVENTS = {
     note: 'Blinds the player with a white-out flash in the headset only - invisible on stream/OBS and in desktop previews. Duration, opacity and fade are configured in-game.'
   },
   cubeanimation: {
-    label: 'Lurk (Cube Animation)',
-    fields: [
-      { key: 'user', label: 'Username', required: true, num: false, hint: '%user%' },
-      { key: 'scale', label: 'Note Scale', required: false, num: true, hint: 'overrides the in-game Note Scale, e.g. 0.6 (default 0.4)' }
-    ],
-    note: 'A small note pops up at its fixed world spot, tilts around curiously with the viewer\'s name over it, then sinks back down. Spawn position, facing and timing are hardcoded in the mod.'
+    label: 'Cube Animation (Lurk / Eject)',
+    action: { key: 'action', label: 'Action', options: ['lurk', 'eject'], value: 'lurk', hint: 'Choose which animation to build (default: lurk).' },
+    actions: {
+      lurk: [
+        { key: 'user', label: 'Username', required: true, num: false, hint: '%user% shown above the note' },
+        { key: 'scale', label: 'Size', required: false, num: true, hint: 'overrides the default size (lurk 0.4). Leave empty for the default.' },
+        { key: 'duration', label: 'Time (seconds)', required: false, num: true, hint: 'how long the note stays out before sinking (default 5). Leave empty for the default.' }
+      ],
+      eject: [
+        { key: 'color', label: 'Suit Color', required: false, num: false, hint: 'red, blue, green, pink, orange, purple, brown, cyan, yellow, black, white... or a hex like #FF0000 (default: red)' },
+        { key: 'line1', label: 'Text Line 1', required: false, num: false, hint: '%user% was not the Impostor.' },
+        { key: 'line2', label: 'Text Line 2', required: false, num: false, hint: '1 impostor remains. Omit for a single line; omit both for no text.' },
+        { key: 'scale', label: 'Size', required: false, num: true, hint: 'scales the crewmate and the text together (default 1.8). Leave empty for the default.' },
+        { key: 'duration', label: 'Time (seconds)', required: false, num: true, hint: 'overrides the total animation length; longer = slower slide + typing (default auto). Leave empty for the default.' }
+      ]
+    },
+    note: 'Lurk: a small note pops up at its fixed world spot, tilts around curiously with the viewer\'s name over it, then sinks back down. Eject: an Among Us crewmate dashes left-to-right past a fixed point in one smooth pass, rolling a full end-over-end flip, while an optional message types out beneath it.'
   },
   throw: {
     label: 'Throw Projectiles',
@@ -206,6 +217,45 @@ const EVENTS = {
 };
 
 let currentType = 'bomb';
+let currentAction = 'lurk';
+
+function activeFields(ev) {
+  if (ev.actions) {
+    if (!ev.actions[currentAction]) currentAction = ev.action ? ev.action.value : '';
+    return ev.actions[currentAction] || [];
+  }
+  return ev.fields || [];
+}
+
+function buildField(f) {
+  const div = document.createElement('div');
+  div.className = 'field';
+
+  let inputHtml;
+  if (f.options) {
+    // Dropdown field: present the allowed values. An empty first option
+    // ("(default)") means "omit this field from the payload".
+    const opts = ['', ...f.options];
+    const rows = opts.map(function(o) {
+      const label = o === '' ? '(default)' : o;
+      const sel = (f.default || '') === o ? ' selected' : '';
+      return '<option value="' + o + '"' + sel + '>' + label + '</option>';
+    }).join('');
+    inputHtml = '<select data-key="' + f.key + '">' + rows + '</select>';
+  } else {
+    inputHtml =
+      '<input data-key="' + f.key + '" type="text" value="' + (f.default || '') + '" placeholder="' + f.hint.replace(/"/g, '&quot;') + '">';
+  }
+
+  div.innerHTML =
+    '<label>' + f.label +
+    (f.required
+      ? '<span class="req" title="Required">* required</span>'
+      : ' <span style="color:#555;">(optional)</span>') + '</label>' +
+    inputHtml +
+    '<div class="hint">' + f.hint.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
+  return div;
+}
 
 function buildFields() {
   const container = document.getElementById('fields');
@@ -222,35 +272,19 @@ function buildFields() {
     generate();
     return;
   }
-  ev.fields.forEach(f => {
-    const div = document.createElement('div');
-    div.className = 'field';
-
-    let inputHtml;
-    if (f.options) {
-      // Dropdown field: present the allowed values. An empty first option
-      // ("(default)") means "omit this field from the payload".
-      const opts = ['', ...f.options];
-      const rows = opts.map(function(o) {
-        const label = o === '' ? '(default)' : o;
-        const sel = (f.default || '') === o ? ' selected' : '';
-        return '<option value="' + o + '"' + sel + '>' + label + '</option>';
-      }).join('');
-      inputHtml = '<select data-key="' + f.key + '">' + rows + '</select>';
-    } else {
-      inputHtml =
-        '<input data-key="' + f.key + '" type="text" value="' + (f.default || '') + '" placeholder="' + f.hint.replace(/"/g, '&quot;') + '">';
-    }
-
-    div.innerHTML =
-      '<label>' + f.label +
-      (f.required
-        ? '<span class="req" title="Required">* required</span>'
-        : ' <span style="color:#555;">(optional)</span>') + '</label>' +
-      inputHtml +
-      '<div class="hint">' + f.hint.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</div>';
-    container.appendChild(div);
-  });
+  if (ev.actions && ev.action) {
+    if (!ev.actions[currentAction]) currentAction = ev.action.value;
+    // The action dropdown always shows first; switching it re-renders the
+    // per-action field set below.
+    const actionField = buildField(ev.action);
+    container.appendChild(actionField);
+    actionField.querySelector('select').value = currentAction;
+    actionField.querySelector('select').addEventListener('change', function() {
+      currentAction = this.value;
+      buildFields();
+    });
+  }
+  activeFields(ev).forEach(f => container.appendChild(buildField(f)));
   container.querySelectorAll('input').forEach(inp => {
     inp.addEventListener('input', generate);
   });
@@ -293,7 +327,8 @@ function buildPayload(vals) {
   }
   const data = [];
   const missing = [];
-  ev.fields.forEach(f => {
+  if (ev.actions) data.push('    "action": ' + jstr(vals['action'] || ev.action.value));
+  activeFields(ev).forEach(f => {
     const v = vals[f.key];
     if (v === '') {
       if (f.required) missing.push(f.label);
@@ -315,7 +350,8 @@ function buildPayloadCompact(vals) {
   const ev = EVENTS[currentType];
   if (ev.control) return '{' + '"type": ' + jstr(currentType) + '}';
   const data = [];
-  ev.fields.forEach(f => {
+  if (ev.actions) data.push('"action": ' + jstr(vals['action'] || ev.action.value));
+  activeFields(ev).forEach(f => {
     const v = vals[f.key];
     if (v === '') return;
     data.push('"' + f.key + '": ' + emitValue(f, v));

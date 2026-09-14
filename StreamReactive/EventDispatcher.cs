@@ -93,6 +93,12 @@ internal static class EventDispatcher
         // and starts them later.
         if (IsFlashbangType(type))
         {
+            // Per-event kill switch: off ignores flashbangs from any source.
+            if (cfg?.EventFlashbangEnabled != true)
+            {
+                NoteCosmeticController.VerboseLog("Flashbang disabled: ignoring.");
+                return;
+            }
             // A flashbang can't blind the player mid-map while the mod is manually
             // paused or a protected (Noodle/Vivify/WIP) map is active. In both cases
             // it's held and replayed at the start of the next playable map rather
@@ -108,6 +114,12 @@ internal static class EventDispatcher
 
         if (IsProjectionType(type))
         {
+            // Per-event kill switch: off ignores projections from any source.
+            if (cfg?.EventProjectionEnabled != true)
+            {
+                NoteCosmeticController.VerboseLog("Projection disabled: ignoring.");
+                return;
+            }
             if (cfg?.Paused == true || Plugin.IsMapProtectionActive())
             {
                 NoteCosmeticController.VerboseLog($"Paused: ignoring {type}.");
@@ -189,15 +201,28 @@ internal static class EventDispatcher
                            ?? animData["display_name"]?.Value<string>()
                            ?? "Anonymous";
             var animScale = GetNullableFloat(animData, "scale", "size");
+            var animDuration = GetNullableFloat(animData, "duration", "time");
+            var animColor = animData["color"]?.Value<string>();
+            var animLine1 = animData["line1"]?.Value<string>()
+                            ?? animData["text"]?.Value<string>()
+                            ?? animData["message"]?.Value<string>();
+            var animLine2 = animData["line2"]?.Value<string>()
+                            ?? animData["text2"]?.Value<string>()
+                            ?? animData["message2"]?.Value<string>();
 
             if (string.Equals(animAction, "lurk", StringComparison.OrdinalIgnoreCase))
             {
-                CubeAnimationController.PlayLurk(animUser, animScale);
+                CubeAnimationController.PlayLurk(animUser, animScale, animDuration);
                 NoteCosmeticController.VerboseLog($"Cube animation: {animUser} lurks.");
+            }
+            else if (string.Equals(animAction, "eject", StringComparison.OrdinalIgnoreCase))
+            {
+                CubeAnimationController.PlayEject(animColor, animLine1, animLine2, animScale, animDuration);
+                NoteCosmeticController.VerboseLog($"Cube animation: {animUser} is ejected.");
             }
             else
             {
-                NoteCosmeticController.VerboseLog($"Cube animation: unknown action '{animAction}' (only 'lurk' is implemented).");
+                NoteCosmeticController.VerboseLog($"Cube animation: unknown action '{animAction}' (only 'lurk' and 'eject' are implemented).");
             }
             return;
         }
@@ -267,6 +292,7 @@ internal static class EventDispatcher
         FlashbangController.StopAll();
         ProjectionController.StopAll();
         CubeAnimationController.StopAll();
+        Plugin.ClearPendingFlashbangs();
     }
 
     private static bool IsThrowType(string type)
@@ -281,7 +307,8 @@ internal static class EventDispatcher
         return string.Equals(type, "cubeanimation", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "cube_animation", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "cube_anim", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(type, "lurk", StringComparison.OrdinalIgnoreCase);
+            || string.Equals(type, "lurk", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "eject", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsFlashbangType(string type)

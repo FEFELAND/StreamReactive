@@ -104,7 +104,7 @@
       <option value="throw">Throw Projectiles</option>
       <option value="flashbang">Flashbang</option>
       <option value="projection">Projection</option>
-      <option value="cubeanimation">Lurk (Cube Animation)</option>
+      <option value="cubeanimation">Cube Animation</option>
     </select>
   </div>
   <div id="customFields" class="field-row"></div>
@@ -230,12 +230,63 @@ const CUSTOM_EVENTS = {
     ]
   },
   cubeanimation: {
-    fields: [
-      { key: 'user', label: 'Username', required: true, num: false, value: 'TestUser' },
-      { key: 'scale', label: 'Note Scale', required: false, num: true, value: '', hint: 'override in-game Note Scale, e.g. 0.6' }
-    ]
+    action: { key: 'action', label: 'Action', options: ['lurk', 'eject'], value: 'lurk' },
+    actions: {
+      lurk: [
+        { key: 'user', label: 'Username', required: true, num: false, value: 'TestUser' },
+        { key: 'scale', label: 'Size', required: false, num: true, value: '', hint: 'overrides the default (lurk 0.4). Leave empty for the default.' },
+        { key: 'duration', label: 'Time (seconds)', required: false, num: true, value: '', hint: 'how long the note stays out (default 5). Leave empty for the default.' }
+      ],
+      eject: [
+        { key: 'color', label: 'Suit Color', required: false, num: false, value: '', hint: 'red, blue, green, pink, orange, purple, brown, cyan, yellow, black, white... or a hex like #FF0000 (default red)' },
+        { key: 'line1', label: 'Text Line 1', required: false, num: false, value: '', hint: 'optional — omit for no text' },
+        { key: 'line2', label: 'Text Line 2', required: false, num: false, value: '', hint: 'optional — omit for a single line' },
+        { key: 'scale', label: 'Size', required: false, num: true, value: '', hint: 'scales the crewmate and the text together (default 1.8). Leave empty for the default.' },
+        { key: 'duration', label: 'Time (seconds)', required: false, num: true, value: '', hint: 'overrides the total animation length; longer = slower slide + typing (default auto).' }
+      ]
+    }
   }
 };
+
+// Tracks the currently-selected sub-action (lurk / eject) for events that
+// expose per-action field sets.
+var currentAction = '';
+
+function buildFieldDiv(f) {
+  var div = document.createElement('div');
+  div.className = 'field';
+  var labelHtml = '<label>' + f.label + (f.required ? ' <span style="color:#ef5350;font-size:0.7rem;">required</span>' : '') + '</label>';
+  if (f.options) {
+    var opts = [''].concat(f.options);
+    var preselect = f.value || '';
+    var rows = opts.map(function(o) {
+      var text = o === '' ? '(default)' : o;
+      var sel = preselect === o ? ' selected' : '';
+      return '<option value="' + o + '"' + sel + '>' + text + '</option>';
+    }).join('');
+    div.innerHTML = labelHtml + '<select data-key="' + f.key + '">' + rows + '</select>';
+  } else {
+    var inputType = f.num ? 'number' : 'text';
+    div.innerHTML = labelHtml +
+      '<input data-key="' + f.key + '" type="' + inputType + '" value="' + (f.value || '') + '"' +
+      (f.hint ? ' placeholder="' + f.hint.replace(/"/g, '&quot;') + '"' : '') + '>';
+  }
+  return div;
+}
+
+// The fields to show for an event: a straight "fields" list, or the a sub-set
+// picked by the "action" dropdown when the event is action-driven.
+function activeFields(ev) {
+  if (ev.actions) {
+    var set = ev.actions[currentAction];
+    if (!set) {
+      currentAction = ev.action ? ev.action.value : '';
+      return ev.actions[currentAction] || [];
+    }
+    return set;
+  }
+  return ev.fields || [];
+}
 
 function renderCustomFields() {
   var type = document.getElementById('customType').value;
@@ -250,24 +301,26 @@ function renderCustomFields() {
     p.textContent = ev.note;
     container.appendChild(p);
   }
-  (ev.fields || []).forEach(function(f) {
-    var div = document.createElement('div');
-    div.className = 'field';
-    var labelHtml = '<label>' + f.label + (f.required ? ' <span style="color:#ef5350;font-size:0.7rem;">required</span>' : '') + '</label>';
-    if (f.options) {
-      var opts = [''].concat(f.options);
-      var rows = opts.map(function(o) {
-        var text = o === '' ? '(default)' : o;
-        return '<option value="' + o + '">' + text + '</option>';
-      }).join('');
-      div.innerHTML = labelHtml + '<select data-key="' + f.key + '">' + rows + '</select>';
-    } else {
-      var inputType = f.num ? 'number' : 'text';
-      div.innerHTML = labelHtml +
-        '<input data-key="' + f.key + '" type="' + inputType + '" value="' + (f.value || '') + '"' +
-        (f.hint ? ' placeholder="' + f.hint.replace(/"/g, '&quot;') + '"' : '') + '>';
-    }
-    container.appendChild(div);
+  if (ev.actions && ev.action) {
+    if (!currentAction && ev.action.value) currentAction = ev.action.value;
+    if (!ev.actions[currentAction]) currentAction = ev.action.value;
+    container.appendChild(buildFieldDiv(ev.action));
+    // Reflect the actual current action instead of the field's static default,
+    // so switching lurk/eject sticks and the shown field set stays in sync.
+    var actionSel = container.querySelector('select[data-key="action"]');
+    if (actionSel) actionSel.value = currentAction;
+  }
+  var fields = activeFields(ev);
+  fields.forEach(function(f) {
+    container.appendChild(buildFieldDiv(f));
+  });
+  container.querySelectorAll('select').forEach(function(sel) {
+    sel.addEventListener('change', function() {
+      if (sel.dataset.key === 'action') {
+        currentAction = sel.value;
+        renderCustomFields();
+      }
+    });
   });
 }
 
@@ -286,7 +339,8 @@ function customPayload() {
   var vals = customValues();
   var data = {};
   var missing = [];
-  (ev.fields || []).forEach(function(f) {
+  if (ev.actions) data.action = vals['action'] || ev.action.value;
+  activeFields(ev).forEach(function(f) {
     var v = vals[f.key];
     if (v === '') {
       if (f.required) missing.push(f.label);

@@ -10,6 +10,7 @@ using BS_Utils.Utilities;
 using HMUI;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -53,6 +54,14 @@ internal sealed class ChatPanelController : MonoBehaviour
     private const float HandleCubeSize = 5f;
     private const float HandleGap = 3f;
 
+    // Slim, purely visual scrollbar in the chat card's right gutter. It mirrors
+    // the ScrollRect's position every frame but never feeds input back into it,
+    // so it cannot interfere with dragging the feed or the auto-scroll logic.
+    private const float ScrollbarWidth = 1.2f;
+    private const float ScrollbarInset = 1.2f;
+    private const float ScrollbarEdgePad = 2f;
+    private const float ScrollbarMinHandle = 3f;
+
     private static readonly string LockResource = "StreamReactive.Resources.Lock.png";
     private static readonly string UnlockResource = "StreamReactive.Resources.Unlock.png";
 
@@ -68,11 +77,18 @@ internal sealed class ChatPanelController : MonoBehaviour
     private static ChatPanelController? _instance;
 
     private readonly List<string> _history = new();
+    // Parallel to _history: the lowercased IRC login per line ("" for system
+    // events) so timeouts/bans can remove a user's messages, and the IRC message
+    // id per line ("" when none) so deleted messages can be removed.
+    private readonly List<string> _users = new();
+    private readonly List<string> _ids = new();
     private FloatingScreen? _screen;
     private RectTransform? _cardRect;
     private RectTransform? _rootRect;
     private RectTransform? _textRect;
     private RectTransform? _lockRect;
+    private RectTransform? _scrollTrackRect;
+    private RectTransform? _scrollHandleRect;
     private ScrollRect? _scrollRect;
     private TextMeshProUGUI? _text;
     private RawImage? _lockIcon;
@@ -90,6 +106,7 @@ internal sealed class ChatPanelController : MonoBehaviour
     private float _builtWidth;
     private float _builtHeight;
     private float _builtFontSize;
+    private int _builtSortingOrder;
 
     internal static ChatPanelController? Instance => _instance;
 
@@ -194,6 +211,12 @@ internal sealed class ChatPanelController : MonoBehaviour
                     _text.fontSize = _builtFontSize;
                 RefreshText();
             }
+
+            if (cfg.ChatSortingOrder != _builtSortingOrder)
+            {
+                _builtSortingOrder = cfg.ChatSortingOrder;
+                ApplySortingOrder(cfg.ChatSortingOrder);
+            }
         }
 
         // Apply freshly arrived chat lines once per frame. Scroll to the newest
@@ -217,6 +240,10 @@ internal sealed class ChatPanelController : MonoBehaviour
                 }
             }
         }
+
+        // Mirror the current scroll position into the slim visual scrollbar.
+        if (_scrollTrackRect != null && _scrollHandleRect != null)
+            UpdateScrollbar();
         if (!_pendingBuild) return;
 
         // Don't waste attempts or spam the log while no menu/game scene is up.
@@ -268,6 +295,7 @@ internal sealed class ChatPanelController : MonoBehaviour
         _builtWidth = Mathf.Max(10f, cfg.ChatWidth);
         _builtHeight = Mathf.Max(10f, cfg.ChatHeight);
         _builtFontSize = Mathf.Max(1f, cfg.ChatFontSize);
+        _builtSortingOrder = cfg.ChatSortingOrder;
 
         _locked = cfg.ChatLocked;
         _userScrolledUp = false;
@@ -289,6 +317,7 @@ internal sealed class ChatPanelController : MonoBehaviour
         if (mask != null) UnityEngine.Object.Destroy(mask);
         var mask2 = _screen.GetComponent<Mask>();
         if (mask2 != null) UnityEngine.Object.Destroy(mask2);
+        ApplySortingOrder(cfg.ChatSortingOrder);
         _screen.ShowHandle = !_locked;
         _screen.HandleSide = FloatingScreen.Side.Bottom;
         _screen.HandleReleased += OnHandleReleased;
@@ -296,6 +325,7 @@ internal sealed class ChatPanelController : MonoBehaviour
         CreateCard();
         CreateScrollArea();
         CreateLockButton();
+        CreateScrollbar();
     }
 
     private static bool IsZero(Vector3 v) => v == Vector3.zero;
@@ -395,17 +425,33 @@ internal sealed class ChatPanelController : MonoBehaviour
         scrollRect.decelerationRate = 0.135f;
         scrollRect.scrollSensitivity = 6f;
         _scrollRect = scrollRect;
-        scrollRect.onValueChanged.AddListener(OnChatScrollChanged);
+
+        // The monitor sits on the SAME object as the ScrollRect (never on the
+        // viewport - that would shadow the ScrollRect and steal its drags). It
+        // arms the "user is reading history" flag on any genuine drag or wheel
+        // scroll; ScrollRect's layout-settle events never touch it, and our own
+        // pins don't either, so auto-scroll keeps working through the fill
+        // transition. Returning to the bottom re-arms on the next message (the
+        // dirty handler samples the position first).
+        var monitor = root.AddComponent<ScrollMonitor>();
+        monitor.Owner = this;
     }
 
-    private void OnChatScrollChanged(Vector2 position)
+    // Arms the pause flag only on real input (drag start / wheel). Lives on the
+    // ScrollRect's own GameObject so EventSystem still hands drags to both.
+    private sealed class ScrollMonitor : MonoBehaviour, IBeginDragHandler, IScrollHandler
     {
-        // Normalized 0 = bottom (newest), 1 = top. Any user input that moves
-        // the view away from the bottom means they're reading history; stop
-        // auto-pinning until they're back at the bottom (or a new message
-        // catches them up). Our own programmatic pins report ~0 and no-op.
-        if (position.y > 0.02f)
-            _userScrolledUp = true;
+        public ChatPanelController? Owner;
+
+        public void OnBeginDrag(PointerEventData eventData)
+        {
+            if (Owner != null) Owner._userScrolledUp = true;
+        }
+
+        public void OnScroll(PointerEventData eventData)
+        {
+            if (Owner != null) Owner._userScrolledUp = true;
+        }
     }
 
     private void CreateLockButton()
@@ -459,6 +505,108 @@ internal sealed class ChatPanelController : MonoBehaviour
         RefreshLockVisual();
     }
 
+    // Slim, purely visual scrollbar: a faint track plus a handle whose size
+    // reflects the visible portion and whose position mirrors the ScrollRect.
+    // It is a sibling of the card (not inside the viewport mask) so it is never
+    // clipped, and it never accepts input - a representation only.
+    private void CreateScrollbar()
+    {
+        if (_screen == null) return;
+
+        var trackGo = new GameObject("Scrollbar", typeof(RectTransform));
+        trackGo.transform.SetParent(_screen.transform, false);
+        trackGo.layer = 5;
+        var trackRt = (RectTransform)trackGo.transform;
+        _scrollTrackRect = trackRt;
+
+        var track = trackGo.AddComponent<Image>();
+        track.sprite = BeatSaberMarkupLanguage.Utilities.ImageResources.WhitePixel;
+        track.type = Image.Type.Simple;
+        track.material = BeatSaberMarkupLanguage.Utilities.ImageResources.NoGlowMat;
+        track.color = new Color(1f, 1f, 1f, 0.06f);
+        track.raycastTarget = false;
+
+        var handleGo = new GameObject("Handle", typeof(RectTransform));
+        handleGo.transform.SetParent(trackRt, false);
+        handleGo.layer = 5;
+        var handleRt = (RectTransform)handleGo.transform;
+        handleRt.anchorMin = new Vector2(0.5f, 1f);
+        handleRt.anchorMax = new Vector2(0.5f, 1f);
+        handleRt.pivot = new Vector2(0.5f, 1f);
+        handleRt.anchoredPosition = Vector2.zero;
+        handleRt.sizeDelta = new Vector2(ScrollbarWidth, 0f);
+        _scrollHandleRect = handleRt;
+
+        var handle = handleGo.AddComponent<Image>();
+        handle.sprite = BeatSaberMarkupLanguage.Utilities.ImageResources.WhitePixel;
+        handle.type = Image.Type.Simple;
+        handle.material = BeatSaberMarkupLanguage.Utilities.ImageResources.NoGlowMat;
+        handle.color = new Color(1f, 1f, 1f, 0.3f);
+        handle.raycastTarget = false;
+
+        LayoutScrollbar();
+    }
+
+    // Position / resize the scrollbar track so it sits flush inside the card's
+    // right gutter, matching the card's bottom-anchored growth when the panel
+    // height or font size changes.
+    private void LayoutScrollbar()
+    {
+        if (_scrollTrackRect == null || _screen == null) return;
+
+        var inset = Margin(PluginConfig.Instance!);
+        var margin = inset + ScrollbarInset;
+        var cardH = _builtHeight - inset * 2f;
+        var barHeight = cardH - ScrollbarEdgePad * 2f;
+
+        var trackRt = _scrollTrackRect;
+        trackRt.anchorMin = new Vector2(1f, 0f);
+        trackRt.anchorMax = new Vector2(1f, 0f);
+        trackRt.pivot = new Vector2(1f, 0.5f);
+
+        if (barHeight <= 0f)
+        {
+            trackRt.sizeDelta = new Vector2(ScrollbarWidth, 0f);
+            return;
+        }
+
+        trackRt.sizeDelta = new Vector2(ScrollbarWidth, barHeight);
+        // Bottom-anchored: the track bottom sits at ScrollbarEdgePad from the
+        // card bottom, its center is half a barHeight above that.
+        trackRt.anchoredPosition = new Vector2(-margin, ScrollbarEdgePad + barHeight * 0.5f);
+    }
+
+    // Re-derive handle size/position from the ScrollRect and the actual content
+    // height (read after ForceUpdateCanvases, so it reflects the latest lines).
+    // Hidden while the feed still fits the viewport.
+    private void UpdateScrollbar()
+    {
+        if (_scrollRect == null || _scrollHandleRect == null || _scrollTrackRect == null) return;
+        if (_text == null) return;
+
+        var viewportH = _scrollRect.viewport?.rect.height ?? 0f;
+        var contentH = _scrollRect.content?.rect.height ?? 0f;
+        if (viewportH <= 0f)
+        {
+            _scrollHandleRect.sizeDelta = new Vector2(ScrollbarWidth, 0f);
+            return;
+        }
+
+        if (contentH <= viewportH + 0.01f)
+        {
+            _scrollHandleRect.sizeDelta = new Vector2(ScrollbarWidth, 0f);
+            return;
+        }
+
+        var trackH = _scrollTrackRect.rect.height;
+        var handleH = Mathf.Max(ScrollbarMinHandle, Mathf.Min(trackH, trackH * viewportH / contentH));
+        // This ScrollRect reports 1 = oldest (top), 0 = newest (bottom), so the
+        // handle travels down the track as the feed grows.
+        var y = Mathf.Clamp01(_scrollRect.verticalNormalizedPosition);
+        _scrollHandleRect.sizeDelta = new Vector2(ScrollbarWidth, handleH);
+        _scrollHandleRect.anchoredPosition = new Vector2(0f, -(1f - y) * (trackH - handleH));
+    }
+
     private void ToggleLock()
     {
         _locked = !_locked;
@@ -489,10 +637,11 @@ internal sealed class ChatPanelController : MonoBehaviour
     /// text color. Badges (mod/vip/sub/...) are shown as small tags. Remembers
     /// up to <see cref="MaxMessages"/> and auto-scrolls to the newest line.
     /// </summary>
-    internal void AddMessage(string user, string message, string? twitchColorHex = null, string badges = "")
+    internal void AddMessage(string user, string message, string? twitchColorHex = null, string badges = "", string? messageId = null, bool isShared = false)
     {
         var cfg = PluginConfig.Instance;
         if (cfg == null || !cfg.ChatEnabled) return;
+        if (isShared && !cfg.ChatPanelAllowSharedChat) return;
 
         var nameHex = (!cfg.ChatForceNameColor) ? (ParseHexColor(twitchColorHex) ?? ColorToHex(cfg.ChatNameColor)) : ColorToHex(cfg.ChatNameColor);
         var textHex = ColorToHex(cfg.ChatTextColor);
@@ -505,15 +654,99 @@ internal sealed class ChatPanelController : MonoBehaviour
         if (safeText.Length == 0) safeText = "";
 
         var badgePart = safeBadges.Length > 0 ? $"<color=#999999>{safeBadges}</color> " : string.Empty;
-        var line = $"{badgePart}<color=#{nameHex}>{safeUser}</color>: <color=#{textHex}>{safeText}</color>";
+        var sharedPart = isShared ? "<color=#999999>[SHARED]</color> " : string.Empty;
+        var line = $"{sharedPart}{badgePart}<color=#{nameHex}>{safeUser}</color>: <color=#{textHex}>{safeText}</color>";
+        AppendLine(line, user, messageId ?? "");
+    }
+
+    // Twitch system event (sub, gift, raid, watch streak, timeout, ban, chat
+    // mode change...): a single colored line, distinct from ordinary messages.
+    // detail (when present) is the viewer's own text sent with the event (e.g. a
+    // resub or watch-streak message) and is shown indented underneath. Toggled
+    // by ChatPanelShowSystemEvents.
+    internal void AddSystemEvent(string text, string? detail = null, bool isShared = false)
+    {
+        var cfg = PluginConfig.Instance;
+        if (cfg == null || !cfg.ChatEnabled || !cfg.ChatPanelShowSystemEvents) return;
+        if (isShared && !cfg.ChatPanelAllowSharedChat) return;
+
+        var safeMain = Sanitize(text);
+        if (safeMain.Length == 0) return;
+
+        var eventHex = ColorToHex(cfg.ChatSystemEventColor);
+        var sharedPart = isShared ? "<color=#999999>[SHARED]</color> " : string.Empty;
+
+        var line = $"{sharedPart}<color=#{eventHex}>» {safeMain}</color>";
+
+        var safeDetail = Sanitize(detail ?? string.Empty);
+        if (safeDetail.Length > 0)
+            line += $"\n\u00A0\u00A0<color=#{ColorToHex(cfg.ChatTextColor)}>{safeDetail}</color>";
+
+        AppendLine(line, string.Empty, string.Empty);
+    }
+
+    // Removes the line with the given IRC message id (CLEARMSG / message deleted).
+    internal void RemoveMessageById(string id)
+    {
+        if (PluginConfig.Instance == null || !PluginConfig.Instance.ChatEnabled) return;
+        if (id.Length == 0) return;
+
+        var idx = _ids.IndexOf(id);
+        if (idx >= 0)
+            RemoveAt(idx);
+    }
+
+    // Removes every line from the given user (timeout / ban). login is the
+    // lowercased IRC login.
+    internal void RemoveMessagesByLogin(string login)
+    {
+        if (PluginConfig.Instance == null || !PluginConfig.Instance.ChatEnabled) return;
+        if (login.Length == 0) return;
+
+        var needle = login.ToLowerInvariant();
+        for (var i = _history.Count - 1; i >= 0; i--)
+        {
+            if (_users[i] == needle)
+                RemoveAt(i);
+        }
+    }
+
+    // Clears the whole feed (CLEARCHAT for the whole room).
+    internal void ClearChat()
+    {
+        if (PluginConfig.Instance == null || !PluginConfig.Instance.ChatEnabled) return;
+        _history.Clear();
+        _users.Clear();
+        _ids.Clear();
+        _userScrolledUp = false;
+        _textDirty = true;
+    }
+
+    // Adds one line and keeps the parallel user/id lists in sync with _history.
+    private void AppendLine(string line, string user, string id)
+    {
         _history.Add(line);
+        _users.Add(user.ToLowerInvariant());
+        _ids.Add(id);
 
         var overflow = _history.Count - MaxMessages;
         if (overflow > 0)
+        {
             _history.RemoveRange(0, overflow);
+            _users.RemoveRange(0, overflow);
+            _ids.RemoveRange(0, overflow);
+        }
 
         // Coalesced: the single Update pass applies the text and fixes the
         // scroll position once per frame.
+        _textDirty = true;
+    }
+
+    private void RemoveAt(int idx)
+    {
+        _history.RemoveAt(idx);
+        _users.RemoveAt(idx);
+        _ids.RemoveAt(idx);
         _textDirty = true;
     }
 
@@ -577,8 +810,23 @@ internal sealed class ChatPanelController : MonoBehaviour
         if (_textRect != null)
             _textRect.sizeDelta = new Vector2(innerW - 12f, 400f);
 
+        // The scrollbar track is the one sibling that grows with the card, so
+        // it needs the same bottom-anchored relayout as the width/height change.
+        LayoutScrollbar();
+
         ApplyHandleLayout();
         Canvas.ForceUpdateCanvases();
+    }
+
+    // Lower BSML's default floating-screen sort order (4) so other UI canvases
+    // draw on top of the panel when they overlap, instead of the panel always
+    // rendering over them regardless of where it is physically placed.
+    private void ApplySortingOrder(int order)
+    {
+        if (_screen == null) return;
+        var chatCanvas = _screen.GetComponent<Canvas>();
+        if (chatCanvas != null)
+            chatCanvas.sortingOrder = Mathf.Clamp(order, -20, 20);
     }
 
     // Re-sculpt BSML's stock rectangle grab handle (width = 80% of screen, thin

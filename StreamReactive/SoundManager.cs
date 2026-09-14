@@ -79,6 +79,7 @@ internal static class SoundManager
         WarmSound(cfg.BitTier100SoundFile);
         WarmSound(cfg.BitTierDefaultSoundFile);
         WarmSound(cfg.ThrowHitSoundFile);
+        WarmSound(cfg.FlashbangSoundFile);
     }
 
     private static void WarmSound(string fileName)
