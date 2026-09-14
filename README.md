@@ -3,8 +3,10 @@ A Beat Saber mod that _Reacts_ to _Stream_ events. Simple, right? | [Changelog](
 
 This mod opens a websocket from your game, which you can then connect to with any bot of your choosing (NoBot, Streamer.Bot, Firebot, etc) and send events to your game based on your own rules.
 You set the triggers, you set the cooldowns, or make everything trigger at once for every chat message, I won't stop you.
+
 If anyone remembers that old GameChanger mod that was available through LIV, this is meant to be close to that idea. But completely open to use and with more features.
 No invite system, nothing paid, do whatever you want if the mod lets you.
+
 Oh and 1.2.0 adds a [Twitch only](#twitch-user-setup) option, aside from using the websocket option.
 > ⚠ Before you continue: Unfortunately this mod is entirely vibe-coded. But this does not mean things go untested. If you are ok with that, carry on. ⚠
 
