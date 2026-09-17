@@ -121,7 +121,7 @@ These will play exactly at the time of request. Even if there are bits or subs o
 
 ## Menu vs In-game
 - Pretty much every event works while you are inside a song/map.
-- The menu has a few events that work: Throw, Flashbang, Projections, Cube Animations (`Lurk` currently)
+- The menu has a few events that work: Throw, Flashbang, Projections, Cube Animations (`Lurk` and `Eject` currently)
 
 ### Extra note:
 Oh by the way. If you use "throw" or the "lurk" before ever starting a map first, you will likely see a placeholder cube. Once you enter a map, see notes for the first time and leave, then it will show correctly.
