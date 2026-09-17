@@ -117,7 +117,7 @@ These events will wait in line and play in the order the mod receives them.
 - Bits, Subs, Raids, Bombs. Bombs are special: if a bomb hasn't been cleared before the next event in line and a new bomb arrives, that new request joins the current bomb event.
 ### Events that work at any time:
 These will play exactly at the time of request. Even if there are bits or subs or any queued event running.
-- Throw, Flashbang, Projections, Cube Animations (`Lurk` currently)
+- Throw, Flashbang, Projections, Cube Animations (`Lurk` and `Eject` currently)
 
 ## Menu vs In-game
 - Pretty much every event works while you are inside a song/map.
