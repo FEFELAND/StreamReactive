@@ -25,6 +25,7 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - `Flashbang` - Streamer gets blinded by a white screen while stream/viewers gets an informative text.
 - `Projection` - Sort of experimental feature I'm not sure how take advantage of yet. But it allows you to load any .obj file you want as particles. And some preset animations.
 - `CubeAnimation` - Silly addition. "Lurk" and "Eject" available.
+- `Highway Scroll Text` - Text spawn option that slides towards the player. For follows or anything else you want.
 - Management events:
   - `Enable` - Enables the mod.
   - `Disable` - Shuts down the mod basically. No reactions to anything, nothing queues up (Chat and Emotes are independent from this toggle).
@@ -117,11 +118,11 @@ These events will wait in line and play in the order the mod receives them.
 - Bits, Subs, Raids, Bombs. Bombs are special: if a bomb hasn't been cleared before the next event in line and a new bomb arrives, that new request joins the current bomb event.
 ### Events that work at any time:
 These will play exactly at the time of request. Even if there are bits or subs or any queued event running.
-- Throw, Flashbang, Projections, Cube Animations (`Lurk` and `Eject` currently)
+- Throw, Flashbang, Projections, Cube Animations (`Lurk` and `Eject` currently), Highway Scroll Text
 
 ## Menu vs In-game
 - Pretty much every event works while you are inside a song/map.
-- The menu has a few events that work: Throw, Flashbang, Projections, Cube Animations (`Lurk` and `Eject` currently)
+- The menu has a few events that work: Throw, Flashbang, Projections, Cube Animations (`Lurk` and `Eject` currently), Highway Scroll Text
 
 ### Extra note:
 Oh by the way. If you use "throw" or the "lurk" before ever starting a map first, you will likely see a placeholder cube. Once you enter a map, see notes for the first time and leave, then it will show correctly.
