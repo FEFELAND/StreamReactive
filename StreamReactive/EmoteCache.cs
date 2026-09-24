@@ -35,6 +35,23 @@ internal sealed class EmoteCache
     private readonly Dictionary<string, long> _emoteBytes = new(StringComparer.OrdinalIgnoreCase);
     private long _estimatedBytes;
 
+    // One shared animation clock anchor per animated emote code. Every animator
+    // (inline chat, rain, throw) derives its current frame from the SAME anchor +
+    // current time, so repeated instances never drift into per-instance starting
+    // phases - a message that reuses an emote plays in lockstep with the earlier
+    // ones, and an animator that attaches late (after the GIF frames landed on
+    // demand) jumps directly to the correct frame instead of restarting from 0.
+    private static readonly Dictionary<string, float> _animatedPhaseStart =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    internal static float GetAnimatedPhaseStart(string code)
+    {
+        if (_animatedPhaseStart.TryGetValue(code, out var start)) return start;
+        start = Time.time;
+        _animatedPhaseStart[code] = start;
+        return start;
+    }
+
     internal IReadOnlyDictionary<string, EmoteInfo> Emotes => _emotes;
     internal Dictionary<string, EmoteInfo> EmotesDict => _emotes;
 
@@ -96,10 +113,24 @@ internal sealed class EmoteCache
 
     private IEnumerator FetchEmoteSet(string channelName)
     {
+        var total = 0;
+
+        // Global sets always load - even for channels with no provider account,
+        // a failing Twitch ID, or 404s on every channel-specific endpoint. They
+        // deliberately come FIRST: a single provider hiccup must never roll the
+        // whole load back, or third-party globals silently vanish after any
+        // channel-specific request fails.
+        yield return FetchSevenTvEmoteSet("https://7tv.io/v3/emote-sets/global", n => total += n);
+        yield return FetchJsonCoroutine("https://api.betterttv.net/3/cached/emotes/global",
+            json => total += ParseBttvEmotes(JArray.Parse(json), "BTTV"));
+        yield return FetchJsonCoroutine("https://api.frankerfacez.com/v1/set/global",
+            json => total += ParseFfzEmoticons(JObject.Parse(json), "FFZ"));
+
+        // Channel-specific sets are best-effort on top of the globals. Each
+        // failure is logged and skipped, never fatal.
         string? twitchId = null;
         var gqlQuery = $"{{ user(login: \"{channelName}\") {{ id }} }}";
         var gqlBody = "{\"query\":\"" + gqlQuery.Replace("\"", "\\\"") + "\"}";
-
         using (var gqlReq = new UnityEngine.Networking.UnityWebRequest("https://gql.twitch.tv/gql", "POST"))
         {
             var bodyRaw = Encoding.UTF8.GetBytes(gqlBody);
@@ -113,32 +144,48 @@ internal sealed class EmoteCache
             if (gqlReq.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
             {
                 Plugin.Log.Warn($"EmoteCache: failed to resolve Twitch user '{channelName}': {gqlReq.error}");
-                yield break;
             }
-
-            try
+            else
             {
-                var gqlJson = JToken.Parse(gqlReq.downloadHandler.text);
-                twitchId = gqlJson?["data"]?["user"]?["id"]?.ToString();
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log.Warn($"EmoteCache: bad JSON from Twitch GQL: {ex.Message}");
-                yield break;
+                try
+                {
+                    var gqlJson = JToken.Parse(gqlReq.downloadHandler.text);
+                    twitchId = gqlJson?["data"]?["user"]?["id"]?.ToString();
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warn($"EmoteCache: bad JSON from Twitch GQL: {ex.Message}");
+                }
             }
         }
 
         if (string.IsNullOrEmpty(twitchId))
         {
-            Plugin.Log.Warn($"EmoteCache: Twitch user '{channelName}' not found.");
-            yield break;
+            Plugin.Log.Warn($"EmoteCache: Twitch user '{channelName}' not found; channel-specific sets skipped.");
+        }
+        else
+        {
+            Plugin.Log.Info($"EmoteCache: resolved '{channelName}' → Twitch ID {twitchId}.");
+
+            yield return FetchSevenTvUserSet(twitchId!, channelName, n => total += n);
+            yield return FetchJsonCoroutine($"https://api.betterttv.net/3/cached/users/twitch/{twitchId}",
+                json =>
+                {
+                    var root = JObject.Parse(json);
+                    total += ParseBttvEmotes(root["channelEmotes"], "BTTV");
+                    total += ParseBttvEmotes(root["sharedEmotes"], "BTTV");
+                });
+            yield return FetchJsonCoroutine($"https://api.frankerfacez.com/v1/room/id/{twitchId}",
+                json => total += ParseFfzEmoticons(JObject.Parse(json), "FFZ"));
         }
 
-        Plugin.Log.Info($"EmoteCache: resolved '{channelName}' → Twitch ID {twitchId}.");
+        Plugin.Log.Info($"EmoteCache: loaded {total} emotes for '{channelName}'.");
+        _loaded = true;
+    }
 
-        var userListUrl = $"https://7tv.io/v3/users/twitch/{twitchId}";
-
-        using (var www = UnityEngine.Networking.UnityWebRequest.Get(userListUrl))
+    private IEnumerator FetchSevenTvUserSet(string twitchId, string channelName, Action<int> onAdded)
+    {
+        using (var www = UnityEngine.Networking.UnityWebRequest.Get($"https://7tv.io/v3/users/twitch/{twitchId}"))
         {
             www.SetRequestHeader("User-Agent", UserAgent);
             www.timeout = 10;
@@ -150,108 +197,80 @@ internal sealed class EmoteCache
                 yield break;
             }
 
-            var json = www.downloadHandler.text;
-            JObject obj;
-            try { obj = JObject.Parse(json); }
-            catch (Exception ex) { Plugin.Log.Warn($"EmoteCache: bad JSON from 7TV: {ex.Message}"); yield break; }
-
-            int total = 0;
-
-            var emoteSet = obj["emote_set"];
-
-            // 7TV v3 returns emote_set as an ID string; the emotes only exist
-            // under https://7tv.io/v3/emote-sets/{id}. Older payloads embed the
-            // set object directly - keep that path working as a fallback.
-            if (emoteSet != null && emoteSet.Type == JTokenType.String)
+            string? setId = null;
+            JArray? embedded = null;
+            try
             {
-                var setId = emoteSet.Value<string>();
-                if (!string.IsNullOrEmpty(setId))
+                var obj = JObject.Parse(www.downloadHandler.text);
+                var emoteSet = obj["emote_set"];
+
+                // 7TV v3 returns emote_set as an ID string; the emotes only exist
+                // under https://7tv.io/v3/emote-sets/{id}. Older payloads embed the
+                // set object directly - keep that path working as a fallback.
+                if (emoteSet != null && emoteSet.Type == JTokenType.String)
                 {
-                    var setUrl = $"https://7tv.io/v3/emote-sets/{setId}";
-                    using (var swebcall = UnityEngine.Networking.UnityWebRequest.Get(setUrl))
-                    {
-                        Plugin.Log.Info($"EmoteCache: fetching 7TV set {setId}...");
-                        swebcall.SetRequestHeader("User-Agent", UserAgent);
-                        swebcall.timeout = 10;
-                        yield return swebcall.SendWebRequest();
-                        if (swebcall.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
-                        {
-                            try
-                            {
-                                var setObj = JObject.Parse(swebcall.downloadHandler.text);
-                                var emotes = setObj["emotes"] as JArray;
-                                if (emotes != null)
-                                {
-                                    foreach (var emote in emotes)
-                                    {
-                                        if (ParseEmote(emote)) total++;
-                                    }
-                                }
-                            }
-                            catch (Exception ex) { Plugin.Log.Warn($"EmoteCache: bad 7TV emote-set JSON: {ex.Message}"); }
-                        }
-                        else
-                        {
-                            Plugin.Log.Warn($"EmoteCache: failed to fetch 7TV emote set: {swebcall.error}");
-                        }
-                    }
+                    setId = emoteSet.Value<string>();
+                }
+                else if (emoteSet is JObject emoteSetObj)
+                {
+                    embedded = emoteSetObj["emotes"] as JArray;
                 }
             }
-            else if (emoteSet is JObject emoteSetObj)
+            catch (Exception ex)
             {
-                var emotes = emoteSetObj["emotes"] as JArray;
+                Plugin.Log.Warn($"EmoteCache: bad JSON from 7TV: {ex.Message}");
+                yield break;
+            }
+
+            if (!string.IsNullOrEmpty(setId))
+            {
+                Plugin.Log.Info($"EmoteCache: fetching 7TV set {setId}...");
+                yield return FetchSevenTvEmoteSet($"https://7tv.io/v3/emote-sets/{setId}", onAdded);
+            }
+            else if (embedded != null)
+            {
+                var added = 0;
+                foreach (var emote in embedded)
+                {
+                    if (ParseEmote(emote)) added++;
+                }
+                onAdded?.Invoke(added);
+            }
+        }
+    }
+
+    private IEnumerator FetchSevenTvEmoteSet(string url, Action<int> onAdded)
+    {
+        using (var www = UnityEngine.Networking.UnityWebRequest.Get(url))
+        {
+            www.SetRequestHeader("User-Agent", UserAgent);
+            www.timeout = 10;
+            yield return www.SendWebRequest();
+
+            if (www.result != UnityEngine.Networking.UnityWebRequest.Result.Success)
+            {
+                Plugin.Log.Warn($"EmoteCache: failed to fetch 7TV set '{url}': {www.error}");
+                yield break;
+            }
+
+            try
+            {
+                var setObj = JObject.Parse(www.downloadHandler.text);
+                var emotes = setObj["emotes"] as JArray;
+                var added = 0;
                 if (emotes != null)
                 {
                     foreach (var emote in emotes)
                     {
-                        if (ParseEmote(emote)) total++;
+                        if (ParseEmote(emote)) added++;
                     }
                 }
+                onAdded?.Invoke(added);
             }
-
-            var globalUrl = "https://7tv.io/v3/emote-sets/global";
-            using (var gwww = UnityEngine.Networking.UnityWebRequest.Get(globalUrl))
+            catch (Exception ex)
             {
-                gwww.SetRequestHeader("User-Agent", UserAgent);
-                gwww.timeout = 10;
-                yield return gwww.SendWebRequest();
-
-                if (gwww.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
-                {
-                    try
-                    {
-                        var gObj = JObject.Parse(gwww.downloadHandler.text);
-                        var gEmotes = gObj["emotes"] as JArray;
-                        if (gEmotes != null)
-                        {
-                            foreach (var emote in gEmotes)
-                            {
-                                if (ParseEmote(emote)) total++;
-                            }
-                        }
-                    }
-                    catch { }
-                }
+                Plugin.Log.Warn($"EmoteCache: bad 7TV emote-set JSON: {ex.Message}");
             }
-
-            // BTTV + FFZ: their own emotes (and they also mirror many Twitch
-            // emotes). Kept in memory only. FetchJsonCoroutine swallows errors.
-            yield return FetchJsonCoroutine("https://api.betterttv.net/3/cached/emotes/global",
-                json => total += ParseBttvEmotes(JArray.Parse(json), "BTTV"));
-            yield return FetchJsonCoroutine($"https://api.betterttv.net/3/cached/users/twitch/{twitchId}",
-                json =>
-                {
-                    var root = JObject.Parse(json);
-                    total += ParseBttvEmotes(root["channelEmotes"], "BTTV");
-                    total += ParseBttvEmotes(root["sharedEmotes"], "BTTV");
-                });
-            yield return FetchJsonCoroutine("https://api.frankerfacez.com/v1/set/global",
-                json => total += ParseFfzEmoticons(JObject.Parse(json), "FFZ"));
-            yield return FetchJsonCoroutine($"https://api.frankerfacez.com/v1/room/id/{twitchId}",
-                json => total += ParseFfzEmoticons(JObject.Parse(json), "FFZ"));
-
-            Plugin.Log.Info($"EmoteCache: loaded {total} emotes for '{channelName}'.");
-            _loaded = true;
         }
     }
 
@@ -899,6 +918,21 @@ internal sealed class EmoteCache
                 _animatedFrames[code] = frames;
                 _frameDelays[code] = output.FrameDelay;
                 Touch(code);
+                // This on-demand path (frames fetched after the static texture)
+                // bypasses FinalizeEmote's accounting, so the frames must be
+                // counted here too - otherwise they'd accumulate outside the
+                // configured LRU budget. Only the delta is added: codes that
+                // already went through the full animated fetch keep their size.
+                var frameBytes = (long)output.Width * output.Height * 4 * frames.Length;
+                if (!_emoteBytes.TryGetValue(code, out var prevBytes))
+                    prevBytes = 0;
+                var addBytes = Math.Max(0, frameBytes - prevBytes);
+                if (addBytes > 0)
+                {
+                    _emoteBytes[code] = frameBytes;
+                    _estimatedBytes += addBytes;
+                }
+                EvictIfNeeded();
                 if (PluginConfig.Instance?.VerboseLogging == true)
                 Plugin.Log.Info($"EmoteCache: fetched animated frames for '{code}' ({frames.Length} frames, {output.Width}x{output.Height}, {output.FrameDelay * 1000f:F0}ms/frame).");
             }
@@ -914,32 +948,40 @@ internal sealed class EmoteAnimator : MonoBehaviour
 {
     private EmoteHudEntry? _hudEntry;
     private Texture2D[]? _frames;
-    private int _frameIndex;
     private float _frameDelay;
-    private float _timer;
+    private float _phaseStart;
 
-    internal void Initialize(Texture2D[] frames, float frameDelay, EmoteHudEntry hudEntry)
+    // Mirrors ChatEmoteAnimator: the frame index comes from the shared per-code
+    // phase anchor (EmoteCache.GetAnimatedPhaseStart), so every instance of the
+    // same animated emote - throw, rain or a second chat row - cycles in lockstep
+    // instead of each new decal restarting at frame 0 and reading as a fresh,
+    // out-of-sync instance.
+    internal void Initialize(Texture2D[] frames, float frameDelay, EmoteHudEntry hudEntry, string code)
     {
         _frames = frames;
         _frameDelay = Mathf.Max(0.03f, frameDelay);
         _hudEntry = hudEntry;
-        _frameIndex = 0;
-        _timer = 0f;
-        if (_frames.Length > 0)
-            _hudEntry.CurrentTexture = _frames[0];
+        _phaseStart = EmoteCache.GetAnimatedPhaseStart(code);
+        var frame = CurrentFrame();
+        if (frame != null)
+            _hudEntry.CurrentTexture = frame;
     }
 
     private void Update()
     {
         if (_frames == null || _frames.Length <= 1) return;
 
-        _timer += Time.deltaTime;
-        if (_timer < _frameDelay) return;
-        _timer -= _frameDelay;
+        var frame = CurrentFrame();
+        if (frame != null && _hudEntry != null)
+            _hudEntry.CurrentTexture = frame;
+    }
 
-        _frameIndex = (_frameIndex + 1) % _frames.Length;
-
-        if (_hudEntry != null)
-            _hudEntry.CurrentTexture = _frames[_frameIndex];
+    private Texture2D? CurrentFrame()
+    {
+        if (_frames == null || _frames.Length == 0) return null;
+        if (_frames.Length == 1) return _frames[0];
+        var index = Mathf.FloorToInt((Time.time - _phaseStart) / _frameDelay);
+        if (index < 0) index = 0;
+        return _frames[index % _frames.Length];
     }
 }

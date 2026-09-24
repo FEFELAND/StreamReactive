@@ -115,6 +115,7 @@ public class Plugin
         CapsuleGuardController.EnsureCreated();
         FlashbangController.EnsureCreated();
         ProjectionController.EnsureCreated();
+        HighwayTextController.EnsureCreated();
 
         var userDataDir = Path.Combine(Environment.CurrentDirectory, "UserData", "StreamReactive");
         try
@@ -1080,15 +1081,21 @@ public class Plugin
 
         Log.Info($"Starting emote system for channel '{channel}'.");
 
+        // Badge images for the chat panel are always worth downloading whenever
+        // the IRC connection starts (independent of the emote-effect toggles).
+        BadgeCache.LoadChannel(channel!);
+
         // The IRC reader always connects (it also feeds the Chat panel), but
         // the emote CATALOG is only worth downloading when at least one emote
-        // effect is actually enabled. Otherwise we'd fetch 7TV/BTTV/FFZ lists
-        // for nothing on every start.
-        var wantsEmotes = cfg.EmoteThrowEnabled || cfg.EmoteRainEnabled;
+        // effect is enabled OR the chat panel renders emotes: the panel matches
+        // 7TV/BTTV/FFZ emotes by word against this catalog (Twitch-native ones
+        // come straight from the IRC emotes tag and always work). Otherwise
+        // we'd fetch 7TV/BTTV/FFZ lists for nothing on every start.
+        var wantsEmotes = cfg.EmoteThrowEnabled || cfg.EmoteRainEnabled || cfg.ChatEmotes;
         if (wantsEmotes)
             EmoteCache.Instance.LoadChannel(channel!);
         else
-            Log.Info("Emote system: catalog load skipped (neither emote throw nor emote rain is enabled).");
+            Log.Info("Emote system: catalog load skipped (emote throw, emote rain, and chat emotes are all disabled).");
 
         _chatReader = new TwitchChatReader(EmoteCache.Instance.EmotesDict);
         _chatReader.Connect(channel!);
@@ -1188,7 +1195,7 @@ public class Plugin
             if (EmoteCache.Instance.TryGetAnimatedFrames(emoteCode, out var frames, out var delay))
             {
                 var animator = go.AddComponent<EmoteAnimator>();
-                animator.Initialize(frames, delay, hudEntry);
+                animator.Initialize(frames, delay, hudEntry, emoteCode);
             }
 
             go.AddComponent<EmoteRainDrop>();

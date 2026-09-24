@@ -1706,7 +1706,12 @@ public int SubParticleCount
             var old = Config.TwitchChannelName;
             Config.TwitchChannelName = value ?? "";
             if (!string.Equals(old, Config.TwitchChannelName, System.StringComparison.OrdinalIgnoreCase))
+            {
+                // A different channel means a different room: drop the old chat
+                // so the panel doesn't mix messages from both channels.
+                ChatPanelController.Instance?.ClearChat();
                 Plugin.Instance?.StartEmoteSystem();
+            }
         }
     }
 
@@ -1785,6 +1790,25 @@ public int SubParticleCount
     {
         get => Config?.ChatPanelAllowSharedChat ?? true;
         set { if (Config != null) Config.ChatPanelAllowSharedChat = value; }
+    }
+
+    [UIValue("chat-emotes")]
+    public bool ChatEmotes
+    {
+        get => Config?.ChatEmotes ?? false;
+        set
+        {
+            if (Config == null) return;
+            Config.ChatEmotes = value;
+            // Turning chat emotes on mid-session needs the emote catalog
+            // (7TV/BTTV/FFZ match by word against it) even when the emote
+            // effects are off. LoadChannel is a no-op when the catalog is
+            // already loaded and never touches the IRC connection (the reader
+            // shares the same cached dictionary), so a live toggle costs
+            // exactly the six catalog fetches.
+            if (value)
+                EmoteCache.Instance.LoadChannel(Config.TwitchChannelName);
+        }
     }
 
     [UIValue("irc-bits-enabled")]

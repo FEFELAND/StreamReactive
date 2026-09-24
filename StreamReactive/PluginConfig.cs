@@ -338,6 +338,11 @@ public class PluginConfig
     // tagged by Twitch with source-room-id / source-id. On keeps those relayed
     // lines (marked [SHARED]) in the panel; off hides them entirely.
     public virtual bool ChatPanelAllowSharedChat { get; set; } = true;
+    // Chat emotes: when on, emote words (7TV/BTTV/FFZ, Twitch native, and emoji
+    // when Emoji Support is also on) render as their actual images INSIDE the
+    // chat lines, using the same download-on-demand cache as emote rain. Wide
+    // emotes are scaled to fit their word, so they never overlap other text.
+    public virtual bool ChatEmotes { get; set; } = false;
 
     // ---- IRC-triggered events (bot-less alternative to the WebSocket) ----
     // The anonymous IRC connection (see TwitchChatReader) sees the same Twitch

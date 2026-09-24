@@ -1,3 +1,8 @@
+# 1.2.1
+- Chat Panel: It now displays badges properly instead of text. (🔗 = Shared chat)
+- Chat Panel: There is now a toggle to enable emotes in the chat panel.
+- Added event: Highway text scroll
+
 # 1.2.0
 - **Big feature**: You may now use the mod without the need of a bot if you want. Only your twitch channel name. (Though I still recommend the websocket setup instead) (Thanks qlulezz for the idea)
 - Twitch channel name method supports: Subs, Bits, Raids, !bomb and !throw

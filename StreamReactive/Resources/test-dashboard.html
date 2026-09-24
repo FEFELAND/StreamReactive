@@ -104,6 +104,7 @@
       <option value="throw">Throw Projectiles</option>
       <option value="flashbang">Flashbang</option>
       <option value="projection">Projection</option>
+      <option value="highwaytext">Highway Scroll Text</option>
       <option value="cubeanimation">Cube Animation</option>
     </select>
   </div>
@@ -228,6 +229,16 @@ const CUSTOM_EVENTS = {
       { key: 'rotationY', label: 'Rotation Y (deg)', required: false, num: true, value: '' },
       { key: 'rotationZ', label: 'Rotation Z (deg)', required: false, num: true, value: '' }
     ]
+  },
+  highwaytext: {
+    fields: [
+      { key: 'text', label: 'Text', required: true, num: false, value: 'Hello Chat!', hint: 'the message that drives down the highway' },
+      { key: 'size', label: 'Text size (meters)', required: false, num: true, value: '', hint: 'default 3' },
+      { key: 'maxWidth', label: 'Max width / wrap (meters)', required: false, num: true, value: '', hint: 'text wraps past this (default 10)' },
+      { key: 'speed', label: 'Scroll speed (m/s)', required: false, num: true, value: '', hint: 'default 2' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, value: '', hint: 'optional; 8-digit #RRGGBBAA caps the opacity' }
+    ],
+    note: 'Text laid flat on the floor facing up, fades in on approach, scrolls past the player from Z=30, fades out 10m behind.'
   },
   cubeanimation: {
     action: { key: 'action', label: 'Action', options: ['lurk', 'eject'], value: 'lurk' },

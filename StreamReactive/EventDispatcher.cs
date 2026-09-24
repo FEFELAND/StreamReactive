@@ -149,6 +149,33 @@ internal static class EventDispatcher
             return;
         }
 
+        if (IsHighwayTextType(type))
+        {
+            if (cfg?.Paused == true || Plugin.IsMapProtectionActive())
+            {
+                NoteCosmeticController.VerboseLog($"Paused: ignoring {type}.");
+                return;
+            }
+            var hwData = root["data"] as JObject ?? root;
+            var hwText = hwData["text"]?.Value<string>()
+                         ?? hwData["message"]?.Value<string>()
+                         ?? hwData["content"]?.Value<string>();
+            if (string.IsNullOrEmpty(hwText))
+            {
+                NoteCosmeticController.VerboseLog("Highway text: no text provided; ignoring.");
+                return;
+            }
+            var hwSize = Mathf.Clamp(GetNullableFloat(hwData, "size", "textSize") ?? 3f, 0.1f, 10f);
+            var hwMaxWidth = Mathf.Clamp(GetNullableFloat(hwData, "maxWidth", "width", "maxwidth") ?? 10f, 1f, 60f);
+            var hwSpeed = Mathf.Clamp(GetNullableFloat(hwData, "speed", "scrollSpeed") ?? 2f, 0.5f, 60f);
+            var hwColor = Color.white;
+            var hwColorStr = hwData["color"]?.Value<string>() ?? string.Empty;
+            if (!string.IsNullOrEmpty(hwColorStr) && TryParseHex(hwColorStr, out var parsedHwColor))
+                hwColor = parsedHwColor;
+            HighwayTextController.Show(hwText!, hwSize, hwMaxWidth, hwSpeed, hwColor);
+            return;
+        }
+
         if (IsThrowType(type))
         {
             if (cfg?.Paused == true || Plugin.IsMapProtectionActive())
@@ -292,6 +319,7 @@ internal static class EventDispatcher
         FlashbangController.StopAll();
         ProjectionController.StopAll();
         CubeAnimationController.StopAll();
+        HighwayTextController.StopAll();
         Plugin.ClearPendingFlashbangs();
     }
 
@@ -300,6 +328,17 @@ internal static class EventDispatcher
         return string.Equals(type, "throw", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "throw_cube", StringComparison.OrdinalIgnoreCase)
             || string.Equals(type, "cube", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsHighwayTextType(string type)
+    {
+        return string.Equals(type, "highwaytext", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "highway_text", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "scrolltext", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "scroll_text", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "highway", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "road", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(type, "roadtext", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsCubeAnimationType(string type)

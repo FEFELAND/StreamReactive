@@ -15,11 +15,14 @@ internal sealed class RuntimeHooks : MonoBehaviour
 
     // Thread-safe queue for full chat messages arriving from the IRC reader.
     // colorHex is the viewer's Twitch chat color (hex from the IRC color tag),
-    // or null when the viewer hasn't set one. badges is preformatted badge text
-    // (e.g. "[MOD] [VIP]") from the IRC badges tag, empty when none. id is the
+    // or null when the viewer hasn't set one. badges is the RAW IRC badge list
+    // (e.g. "moderator/1,vip/1") so the chat panel can look up image badges;
+    // empty when the viewer has none. id is the
     // IRC message id, used to remove the line when Twitch deletes the message.
     // isShared marks messages relayed in from a Shared Chat partner channel.
-    private static readonly ConcurrentQueue<(string user, string message, string? colorHex, string badges, string id, bool isShared)> _pendingChat = new();
+    // emotes carries the emote word spans (7TV/BTTV/FFZ, Twitch native, emoji)
+    // detected on the raw message, used by the chat panel to render them inline.
+    private static readonly ConcurrentQueue<(string user, string message, string? colorHex, string badges, string id, bool isShared, ChatPanelController.EmoteSpan[]? emotes)> _pendingChat = new();
 
     // Queue for Twitch system events (subs, raids, watch streaks, timeouts,
     // bans, chat-mode changes...) rendered as styled lines in the chat panel.
@@ -49,9 +52,9 @@ internal sealed class RuntimeHooks : MonoBehaviour
         _pendingEmotes.Enqueue((user, emotes));
     }
 
-    internal static void EnqueueChatMessage(string user, string message, string? colorHex = null, string badges = "", string id = "", bool isShared = false)
+    internal static void EnqueueChatMessage(string user, string message, string? colorHex = null, string badges = "", string id = "", bool isShared = false, ChatPanelController.EmoteSpan[]? emotes = null)
     {
-        _pendingChat.Enqueue((user, message, colorHex, badges, id, isShared));
+        _pendingChat.Enqueue((user, message, colorHex, badges, id, isShared, emotes));
     }
 
     internal static void EnqueueSystemEvent(string text, string? detail = null, bool isShared = false)
@@ -111,7 +114,7 @@ internal sealed class RuntimeHooks : MonoBehaviour
     {
         while (_pendingChat.TryDequeue(out var item))
         {
-            try { ChatPanelController.Instance?.AddMessage(item.user, item.message, item.colorHex, item.badges, item.id, item.isShared); }
+            try { ChatPanelController.Instance?.AddMessage(item.user, item.message, item.colorHex, item.badges, item.id, item.isShared, item.emotes); }
             catch (Exception ex) { Plugin.Log.Warn($"RuntimeHooks: chat event failed for '{item.user}': {ex.Message}"); }
         }
     }

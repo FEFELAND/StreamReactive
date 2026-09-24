@@ -225,7 +225,14 @@ internal sealed class EmoteHudEntry : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (_follow != null && Followers.TryGetValue(_follow, out var self) && self == this)
+        // _follow may already be destroyed (a rain node ending its lifetime, a
+        // projectile expiring before the emote's next LateUpdate), and Unity's
+        // overloaded == reports destroyed objects as null - so a plain != null
+        // guard here would silently skip the removal and leak one static
+        // Followers entry per dead target. ReferenceEquals sees the real managed
+        // reference (Dictionary keys compare by reference), so a destroyed
+        // wrapper still matches and gets removed.
+        if (!ReferenceEquals(_follow, null) && Followers.TryGetValue(_follow, out var self) && self == this)
             Followers.Remove(_follow);
         Active.Remove(this);
         ActiveCodes.Remove(Code);

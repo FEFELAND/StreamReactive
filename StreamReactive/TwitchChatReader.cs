@@ -179,7 +179,8 @@ internal sealed class TwitchChatReader : IDisposable
         }
         else
         {
-            RuntimeHooks.EnqueueChatMessage(user, message, ParseUserColor(line), ParseBadges(line), ReadTag(tags, "id") ?? "", isShared);
+            RuntimeHooks.EnqueueChatMessage(user, message, ParseUserColor(line), ReadTag(tags, "badges") ?? "", ReadTag(tags, "id") ?? "", isShared,
+                ParseEmoteSpans(message, ReadTag(tags, "emotes")));
 
             // Chat bomb command: a message whose first word exactly matches the
             // configured command (e.g. "!bomb"). The panel line above still shows
@@ -601,16 +602,22 @@ internal sealed class TwitchChatReader : IDisposable
         return null;
     }
 
-    // Shared Chat relays partner-channel messages into our channel. Relayed
-    // PRIVMSG lines carry source-room-id / source-id; relayed USERNOTICE lines
-    // carry source-room-id / source-msg-id. Their presence marks a shared-chat
-    // message (our own channel's messages never have them).
+    // Twitch Shared Chat combines partner channels; messages relayed from a
+    // partner room arrive in our room tagged with source-room-id / source-id
+    // (PRIVMSG) or source-room-id / source-msg-id (USERNOTICE). IMPORTANT: in a
+    // shared-chat-enabled room EVERY message carries those source tags - the
+    // messages sent in the room itself have a source-room-id that EQUALS the
+    // room's own room-id tag. Checking tag presence alone therefore flags every
+    // message (the broadcaster's own included) as "shared". The distinguishing
+    // test is that source-room-id DIFFERS from this room's room-id: only then
+    // was the message actually relayed in from another channel.
     private static bool IsSharedChat(Dictionary<string, string>? tags)
     {
         if (tags == null) return false;
-        return tags.ContainsKey("source-room-id")
-            || tags.ContainsKey("source-msg-id")
-            || tags.ContainsKey("source-id");
+        if (!tags.TryGetValue("source-room-id", out var sourceRoomId) || sourceRoomId.Length == 0)
+            return false;
+        var roomId = ReadTag(tags, "room-id");
+        return roomId == null || !string.Equals(sourceRoomId, roomId, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string FirstNonEmpty(params string?[] values)
@@ -688,6 +695,139 @@ internal sealed class TwitchChatReader : IDisposable
         return found.ToArray();
     }
 
+    // Emote spans for the CHAT PANEL: each (start, length, code) covers the
+    // range of the raw message that renders as an emote image. Word-based
+    // (7TV/BTTV/FFZ) matches are whole tokens; Twitch-native emotes come from
+    // the `emotes` tag's exact ranges and replace a name collision on the same
+    // range; emoji (when enabled) are scanned last and yield to any overlap.
+    // The spans are resolved against the raw message; the panel re-finds each
+    // word in its sanitized copy so index shifts can never misplace a decal.
+    private ChatPanelController.EmoteSpan[]? ParseEmoteSpans(string message, string? emotesTag)
+    {
+        if (string.IsNullOrEmpty(message)) return null;
+        var spans = new List<ChatPanelController.EmoteSpan>();
+
+        // Whole-token word matches, offsets kept by walking the split delimiters.
+        var tokens = message.Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.None);
+        var cursor = 0;
+        foreach (var token in tokens)
+        {
+            if (token.Length > 0 && _emotes.ContainsKey(token))
+                spans.Add(new ChatPanelController.EmoteSpan(cursor, token.Length, token));
+            cursor += token.Length + 1;
+        }
+
+        // Twitch-native emotes: the tag lists each emote's exact range(s), which
+        // is the only way to know where a native emote sits in the message (its
+        // word need not be a whole token, e.g. "Kappa123 spongebob"). Any word
+        // match overlapping a tag range is dropped in favor of the tag.
+        if (!string.IsNullOrEmpty(emotesTag))
+        {
+            foreach (var part in emotesTag!.Split('/'))
+            {
+                if (string.IsNullOrEmpty(part)) continue;
+                var colon = part.IndexOf(':');
+                if (colon <= 0 || colon >= part.Length - 1) continue;
+                var id = part.Substring(0, colon);
+                var code = EmoteCache.Instance.EnsureTwitchEmote(id);
+                var ranges = part.Substring(colon + 1).Split(',');
+                foreach (var range in ranges)
+                {
+                    var dash = range.IndexOf('-');
+                    if (dash <= 0 || dash >= range.Length - 1) continue;
+                    if (!int.TryParse(range.Substring(0, dash), out var s)) continue;
+                    if (!int.TryParse(range.Substring(dash + 1), out var e)) continue;
+                    if (s < 0 || e < s || e >= message.Length) continue;
+                    ReplaceOverlapping(spans, s, e - s + 1, code);
+                }
+            }
+        }
+
+        // Optional Unicode emoji (same toggle as emote rain).
+        if (PluginConfig.Instance?.EmojiSupportEnabled == true)
+        {
+            foreach (var range in ScanEmojiRanges(message))
+            {
+                if (OverlapsAny(spans, range.Start, range.Length)) continue;
+                var code = EmoteCache.Instance.EnsureEmojiEmote(range.Key);
+                spans.Add(new ChatPanelController.EmoteSpan(range.Start, range.Length, code));
+            }
+        }
+
+        return spans.Count > 0 ? spans.ToArray() : null;
+    }
+
+    private static void ReplaceOverlapping(List<ChatPanelController.EmoteSpan> spans, int start, int length, string code)
+    {
+        var end = start + length;
+        for (var i = spans.Count - 1; i >= 0; i--)
+        {
+            var s = spans[i];
+            if (s.Start < end && s.Start + s.Length > start)
+                spans.RemoveAt(i);
+        }
+        spans.Add(new ChatPanelController.EmoteSpan(start, length, code));
+    }
+
+    private static bool OverlapsAny(List<ChatPanelController.EmoteSpan> spans, int start, int length)
+    {
+        var end = start + length;
+        foreach (var s in spans)
+            if (s.Start < end && s.Start + s.Length > start)
+                return true;
+        return false;
+    }
+
+    // Same emoji-run scanner as ExtractEmojis, but ALSO reporting the char
+    // offsets so the chat panel knows exactly where each glyph sits.
+    private static List<(int Start, int Length, string Key)> ScanEmojiRanges(string message)
+    {
+        var result = new List<(int Start, int Length, string Key)>();
+        int i = 0;
+        int len = message.Length;
+        while (i < len)
+        {
+            int r = char.IsHighSurrogate(message[i])
+                ? char.ConvertToUtf32(message[i], message[i + 1])
+                : message[i];
+            int charLen = char.IsHighSurrogate(message[i]) ? 2 : 1;
+
+            if (!IsEmojiBase(r)) { i += charLen; continue; }
+
+            var start = i;
+            var runes = new List<int> { r };
+            i += charLen;
+            bool zwj = false;
+            while (i < len)
+            {
+                int nr = char.IsHighSurrogate(message[i])
+                    ? char.ConvertToUtf32(message[i], message[i + 1])
+                    : message[i];
+                int ncl = char.IsHighSurrogate(message[i]) ? 2 : 1;
+
+                if (zwj)
+                {
+                    if (IsEmojiBase(nr) || (nr >= 0x1F3FB && nr <= 0x1F3FF))
+                    {
+                        runes.Add(nr); i += ncl; zwj = false; continue;
+                    }
+                    break;
+                }
+                if (nr == 0x200D) { runes.Add(nr); i += ncl; zwj = true; continue; }
+                if (nr == 0xFE0F) { runes.Add(nr); i += ncl; continue; }
+                if (nr >= 0x1F3FB && nr <= 0x1F3FF) { runes.Add(nr); i += ncl; continue; }
+                if (r >= 0x1F1E6 && r <= 0x1F1FF && nr >= 0x1F1E6 && nr <= 0x1F1FF)
+                {
+                    runes.Add(nr); i += ncl; break;
+                }
+                break;
+            }
+
+            result.Add((start, i - start, string.Join("-", runes.ConvertAll(x => x.ToString("x2")))));
+        }
+        return result;
+    }
+
     private static string ParseUser(string line)
     {
         var privIdx = line.IndexOf("PRIVMSG", StringComparison.Ordinal);
@@ -734,37 +874,6 @@ private static string ParseNoticeMessage(string line)
         if (color == null) return null;
         if (color.Length < 7 || color == "#") return null;
         return color;
-    }
-
-    // Builds a short badge label from the IRC `badges` tag (e.g.
-    // "broadcaster/1,moderator/1,vip/1,subscriber/1"). Seen as plain text tags;
-    // the full image badges are not fetched here.
-    private static string ParseBadges(string line)
-    {
-        var privIdx = line.IndexOf("PRIVMSG", StringComparison.Ordinal);
-        var tagSection = privIdx > 0 ? line.Substring(0, privIdx) : line;
-        var badges = ExtractTag(tagSection, "badges");
-        if (string.IsNullOrEmpty(badges))
-            return string.Empty;
-
-        var sb = new System.Text.StringBuilder();
-        foreach (var pair in badges!.Split(','))
-        {
-            var name = pair.Split('/')[0];
-            switch (name)
-            {
-                case "broadcaster": sb.Append("[STREAMER]"); break;
-                case "moderator": sb.Append("[MOD]"); break;
-                case "vip": sb.Append("[VIP]"); break;
-                case "subscriber":
-                case "founder": sb.Append("[SUB]"); break;
-                case "turbo": sb.Append("[TURBO]"); break;
-                case "staff": sb.Append("[STAFF]"); break;
-                case "admin": sb.Append("[ADMIN]"); break;
-                case "global_mod": sb.Append("[MOD]"); break;
-            }
-        }
-        return sb.ToString();
     }
 
     // Ranges that contain emoji codepoints (used to detect emoji in chat).

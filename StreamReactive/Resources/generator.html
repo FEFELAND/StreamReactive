@@ -57,6 +57,7 @@
       <option value="cubeanimation">Cube Animation (Lurk / Eject)</option>
       <option value="throw">Throw Projectiles</option>
       <option value="projection">Projection</option>
+      <option value="highwaytext">Highway Scroll Text</option>
       <option value="socket">Socket (Enable / Disable)</option>
       <option value="pause">Pause</option>
       <option value="unpause">Unpause</option>
@@ -186,6 +187,17 @@ const EVENTS = {
       { key: 'rotationZ', label: 'Rotation Z (degrees)', required: false, num: true, hint: 'roll (default 0)' }
     ],
     note: 'Projects a 3D particle shape in front of the player. Built-in presets: star (static 3D), nuke (animated mushroom cloud), pulse (breathing), spiral (4 orbiting emitter streams). Drop custom .obj files in UserData/StreamReactive/Projections/. Position and rotation override the projection\'s placement.'
+  },
+  highwaytext: {
+    label: 'Highway Scroll Text',
+    fields: [
+      { key: 'text', label: 'Text', required: true, num: false, hint: '%rawInput% — the message that drives down the highway' },
+      { key: 'size', label: 'Text size (meters)', required: false, num: true, hint: 'world height of the glyphs (default 3)' },
+      { key: 'maxWidth', label: 'Max width / wrap (meters)', required: false, num: true, hint: 'text wraps to a new line past this (default 10)' },
+      { key: 'speed', label: 'Scroll speed (m/s)', required: false, num: true, hint: 'how fast it drives toward you (default 2)' },
+      { key: 'color', label: 'Color (hex)', required: false, num: false, hint: '#FFFFFF or %color%; 8-digit #RRGGBBAA caps the opacity' }
+    ],
+    note: 'Large text laid flat on the floor (facing up) far down the highway at Z=30, fades in on approach, scrolls past the player, and fades out in the 10 meters behind it.'
   },
   skip: {
     label: 'Skip Current Event',

@@ -730,7 +730,7 @@ internal static class ProjectileThrower
         if (EmoteCache.Instance.TryGetAnimatedFrames(code, out var frames, out var delay))
         {
             var animator = go.AddComponent<EmoteAnimator>();
-            animator.Initialize(frames, delay, hudEntry);
+            animator.Initialize(frames, delay, hudEntry, code);
         }
 
         var behaviour = go.AddComponent<ProjectileCube>();

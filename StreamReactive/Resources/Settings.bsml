@@ -381,7 +381,9 @@
           <bool-setting text="Force Username Color" value="chat-force-name-color" apply-on-change="true" bind-value="true" hover-hint="Ignore the color each viewer set on Twitch and always use the Username Color above for every username."/>
           <bool-setting text="Show Twitch System Events" value="chat-panel-show-system-events" apply-on-change="true" bind-value="true" hover-hint="Show subs, gifts, raids, watch streaks, timeouts, bans and chat-mode changes as colored lines in the panel. Cheers always show but respect this toggle too."/>
           <color-setting text="System Event Color" value="chat-system-event-color" apply-on-change="true" bind-value="true" hover-hint="Color of event lines (subs, gifts, raids, watch streaks, timeouts, bans, chat-mode changes)."/>
-          <bool-setting text="Allow Shared Chat" value="chat-panel-allow-shared-chat" apply-on-change="true" bind-value="true" hover-hint="Show messages relayed from partner channels into your chat by Twitch Shared Chat. They appear marked [SHARED] when enabled; off hides them entirely."/>
+          <bool-setting text="Allow Shared Chat" value="chat-panel-allow-shared-chat" apply-on-change="true" bind-value="true" hover-hint="Show messages from other channels that come through Twitch Shared Chat."/>
+
+          <bool-setting text="Show Chat Emotes" value="chat-emotes" apply-on-change="true" bind-value="true" hover-hint="Show emote images instead of emote text in chat."/>
         </sr-scroll-tall>
       </vertical>
 
