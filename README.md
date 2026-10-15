@@ -47,9 +47,9 @@ https://github.com/user-attachments/assets/cd5c7892-b528-410d-9deb-12894a8e1f4d
 - [Twitch only](#setting-up) setup method: 1.2.0 adds an option to use the mod just with your channel name. Though I still recommend websocket.
 # Installing
 ### Dependencies:
-- Your usual core mods: `BSIPA`, `SongCore`, `BS Utils`, `BSML`, `ImageSharp`
-- `websocket-sharp`
-- `SongDetailsCache`
+- Your usual core mods: `BSIPA(4.3.5+)`, `SongCore(3.14+)`, `BS Utils(1.14.1+)`, `BSML(1.12.3+)`, `ImageSharp(2.0.0+)`
+- `websocket-sharp(1.0.4+)`
+- `SongDetailsCache(1.4.0+)`
 ### Adding the mod:
 - Just like any other mod, head over to the [releases page](https://github.com/FEFELAND/StreamReactive/releases) and grab the latest release.
 - Drag StreamReactive.dll and place it in your Plugins folder
