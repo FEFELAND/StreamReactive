@@ -8,7 +8,9 @@ If anyone remembers that old GameChanger mod that was available through LIV, thi
 No invite system, nothing paid, do whatever you want if the mod lets you.
 
 Oh and 1.2.0 adds a [Twitch only](#setting-up) option, aside from using the websocket option.
-> ⚠ Before you continue: Unfortunately this mod is entirely vibe-coded. But this does not mean things go untested. If you are ok with that, carry on. ⚠
+> [!WARNING]  
+> Before you continue: Unfortunately this mod is entirely vibe-coded. <br>
+> But this does not mean things go untested. If you are ok with that, carry on.
 
 ![General Panel](Assets/Images/SR-General.PNG)
 > Please explore all the settings and tabs at your own pace. See what you can tinker with to your liking.
